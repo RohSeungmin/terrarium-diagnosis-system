@@ -32,6 +32,7 @@ typedef struct {
 // preprocess_ctx_t:
 // - 이전 센서값, 동일값 반복 횟수, 이전 열원 상태를 저장하는 전처리 상태 구조체
 // - 동일값 반복 확인, 표면 온도 변화량 계산, 열원 작동 시간 계산에 사용함
+// - 열원이 켜진 시점의 표면 온도를 저장해서 "작동 시간 대비 온도 상승량" 계산에 사용함
 typedef struct {
     bool has_previous; // 이전 센서 데이터가 저장되어 있는지 여부
     sensor_data_t previous; // 동일값 반복 체크에 사용할 이전 센서 데이터
@@ -44,6 +45,8 @@ typedef struct {
     bool has_previous_heat_source_state; // 이전 열원 작동 상태가 저장되어 있는지 여부
     bool previous_heat_source_on; // 이전 전처리 시점의 열원 작동 상태
     uint32_t heat_source_on_since_ms; // 열원이 켜진 것으로 판단된 시작 시각
+    bool has_heat_source_on_surface_temp_baseline; // 열원 ON 시점 표면 온도 기준값이 저장되어 있는지 여부
+    float heat_source_on_surface_temp_c; // 열원이 켜진 시점의 온열 구역 표면 온도
 
     preprocess_config_t config; // 전처리 기준 설정값
 } preprocess_ctx_t;
@@ -51,9 +54,9 @@ typedef struct {
 // preprocess_result_t:
 // - 전처리 결과와 이후 diagnosis 단계에서 사용할 기본 계산값을 저장하는 구조체
 // - 결측/응답 실패/범위 이상/동일값 반복 여부를 표시하고,
-//   온도구배와 표면 온도 변화량을 함께 제공함
+//   온도구배, 열원 작동 시간, 표면 온도 변화량, 열원 ON 이후 표면 온도 상승량을 함께 제공함
 typedef struct {
-    sensor_data_t cleaned; // 전처리 후 diagnosis 모듈에 전달할 센서 데이터. 각 *_ok 플래그는 전처리 결과를 반영함
+    sensor_data_t cleaned; // 전처리 후 이후 단계에 전달할 정리된 센서 데이터
 
     bool has_missing_value; // 필요한 센서값이 비어 있거나 유효하지 않은지 여부
     bool has_sensor_response_failure; // sensors_read_all() 또는 개별 센서 응답 실패 여부
@@ -65,14 +68,14 @@ typedef struct {
 
     bool heat_source_state_ok; // 조도값을 바탕으로 현재 열원 작동 상태를 추정할 수 있는지 여부
     bool heat_source_on; // 현재 열원이 켜져 있는 것으로 추정되는지 여부
-    bool previous_heat_source_state_ok; // 이전 열원 작동 상태와 비교할 수 있는지 여부
-    bool previous_heat_source_on; // 이전 전처리 시점에 열원이 켜져 있었는지 여부
-    bool heat_source_state_changed; // 이전 상태와 비교했을 때 열원 작동 상태가 바뀌었는지 여부
     uint32_t heat_source_on_since_ms; // 열원이 켜진 것으로 판단된 시작 시각
     uint32_t heat_source_on_duration_ms; // 현재 시각 기준 열원이 켜진 상태로 유지된 시간
 
     bool surface_temp_step_delta_ok; // 표면 온도 변화량 계산 가능 여부
     float surface_temp_step_delta_c; // 현재 온열 구역 표면 온도 - 이전 온열 구역 표면 온도
+
+    bool surface_temp_rise_since_heat_on_ok; // 열원 ON 이후 표면 온도 상승량 계산 가능 여부
+    float surface_temp_rise_since_heat_on_c; // 현재 표면 온도 - 열원 ON 시점의 표면 온도
 
     bool usable_for_diagnosis; // diagnosis 모듈에서 사용할 수 있는 데이터인지 여부
 } preprocess_result_t;
@@ -84,7 +87,7 @@ void preprocess_get_default_config(preprocess_config_t *out_config);
 esp_err_t preprocess_init(preprocess_ctx_t *ctx, const preprocess_config_t *config);
 
 // 원본 센서 데이터, 센서 읽기 결과, 현재 시각을 받아 전처리 결과를 생성함
-// now_ms는 열원 작동 시작 시각과 작동 지속 시간을 계산하는 데 사용함
+// now_ms는 열원 작동 시작 시각, 작동 지속 시간, 작동 후 표면 온도 상승량 계산에 사용함
 esp_err_t preprocess_update(preprocess_ctx_t *ctx, const sensor_data_t *raw_data, 
                             esp_err_t sensor_read_err, uint32_t now_ms,
                             preprocess_result_t *out_result);
