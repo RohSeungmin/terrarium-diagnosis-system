@@ -9,7 +9,7 @@
 #include "sensors.h"
 
 // 전처리 기본 설정값
-#define PREPROCESS_DEFAULT_REPEAT_THRESHOLD 3U
+#define PREPROCESS_DEFAULT_REPEAT_THRESHOLD 10U
 #define PREPROCESS_DEFAULT_MIN_TEMP_C (-55.0f)
 #define PREPROCESS_DEFAULT_MAX_TEMP_C 125.0f
 #define PREPROCESS_DEFAULT_MIN_LIGHT_LEVEL 0
@@ -55,6 +55,9 @@ typedef struct {
 // - 전처리 결과와 이후 diagnosis 단계에서 사용할 기본 계산값을 저장하는 구조체
 // - 결측/응답 실패/범위 이상/동일값 반복 여부를 표시하고,
 //   온도구배, 열원 작동 시간, 표면 온도 변화량, 열원 ON 이후 표면 온도 상승량을 함께 제공함
+// - has_sensor_response_failure, has_missing_value, has_out_of_range_value,
+//   has_repeated_value 중 하나라도 true이면 Device Fault 후보로 보고
+//   diagnosis 단계에서 Lmatch/Lgrad/Lsafety 계산 전에 우선 처리함
 typedef struct {
     sensor_data_t cleaned; // 전처리 후 이후 단계에 전달할 정리된 센서 데이터
 
@@ -77,15 +80,18 @@ typedef struct {
     bool surface_temp_rise_since_heat_on_ok; // 열원 ON 이후 표면 온도 상승량 계산 가능 여부
     float surface_temp_rise_since_heat_on_c; // 현재 표면 온도 - 열원 ON 시점의 표면 온도
 
-    bool usable_for_diagnosis; // diagnosis 모듈에서 사용할 수 있는 데이터인지 여부
+    bool usable_for_diagnosis; // false이면 diagnosis 단계에서 Device Fault 후보로 먼저 처리해야 함
 } preprocess_result_t;
 
+// preprocess_get_default_config:
 // 기본 전처리 설정값을 out_config에 저장함
 void preprocess_get_default_config(preprocess_config_t *out_config);
 
+// preprocess_init:
 // 전처리 상태를 초기화함. config가 NULL이면 기본 설정값을 사용함
 esp_err_t preprocess_init(preprocess_ctx_t *ctx, const preprocess_config_t *config);
 
+// preprocess_update:
 // 원본 센서 데이터, 센서 읽기 결과, 현재 시각을 받아 전처리 결과를 생성함
 // now_ms는 열원 작동 시작 시각, 작동 지속 시간, 작동 후 표면 온도 상승량 계산에 사용함
 esp_err_t preprocess_update(preprocess_ctx_t *ctx, const sensor_data_t *raw_data, 
