@@ -14,8 +14,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#define PREPROCESS_FLOAT_EQUAL_EPSILON 0.001f // float 값 비교 시 허용할 작은 오차 범위
-
 // preprocess_is_valid_config:
 // 전처리 설정값이 사용할 수 있는 범위인지 확인하는 함수
 static bool preprocess_is_valid_config(const preprocess_config_t *config)
@@ -25,10 +23,14 @@ static bool preprocess_is_valid_config(const preprocess_config_t *config)
     }
 
     return config->repeated_value_threshold > 0U &&
+           isfinite(config->repeated_float_epsilon_c) &&
+           config->repeated_float_epsilon_c >= 0.0f &&
            isfinite(config->min_temp_c) &&
            isfinite(config->max_temp_c) &&
            config->min_temp_c <= config->max_temp_c &&
-           config->min_light_level <= config->max_light_level;
+           config->min_light_level <= config->max_light_level &&
+           config->heat_source_off_light_level <= config->heat_source_on_light_level &&
+           config->out_of_range_value_threshold > 0U;
 }
 
 // preprocess_is_valid_temperature:
@@ -46,10 +48,10 @@ static bool preprocess_is_valid_light_level(int light_level, const preprocess_co
 }
 
 // preprocess_float_equal:
-// float 센서값을 작은 허용 오차 안에서 같은 값으로 볼 수 있는지 비교하는 함수
-static bool preprocess_float_equal(float left, float right)
+// DS18B20 해상도를 고려한 허용 오차 안에서 같은 값으로 볼 수 있는지 비교하는 함수
+static bool preprocess_float_equal(float left, float right, float epsilon_c)
 {
-    return fabsf(left - right) <= PREPROCESS_FLOAT_EQUAL_EPSILON;
+    return fabsf(left - right) <= epsilon_c;
 }
 
 // preprocess_increment_repeat_count:
@@ -60,6 +62,17 @@ static uint32_t preprocess_increment_repeat_count(uint32_t previous_count)
         return 2U;
     }
 
+    if (previous_count == UINT32_MAX) {
+        return UINT32_MAX;
+    }
+
+    return previous_count + 1U;
+}
+
+// preprocess_increment_saturating_count:
+// 카운트를 증가시키되 uint32_t 범위를 넘지 않도록 제한하는 함수
+static uint32_t preprocess_increment_saturating_count(uint32_t previous_count)
+{
     if (previous_count == UINT32_MAX) {
         return UINT32_MAX;
     }
@@ -98,35 +111,79 @@ static bool preprocess_has_missing_value(const sensor_data_t *data)
     return !data->hot_surface_ok || !data->hot_air_ok || !data->cool_air_ok || !data->light_ok;
 }
 
+// preprocess_update_out_of_range_count:
+// 비정상 범위 값이 연속으로 관측되는 횟수를 갱신하는 함수
+static void preprocess_update_out_of_range_count(uint32_t *count, bool is_out_of_range)
+{
+    if (count == NULL) {
+        return;
+    }
+
+    if (is_out_of_range) {
+        *count = preprocess_increment_saturating_count(*count);
+    } else {
+        *count = 0U;
+    }
+}
+
 // preprocess_apply_range_checks:
 // cleaned 센서값이 설정된 유효 범위를 벗어나면 해당 값을 진단 입력에서 제외하는 함수
-static void preprocess_apply_range_checks(preprocess_result_t *result, const preprocess_config_t *config)
+static void preprocess_apply_range_checks(preprocess_ctx_t *ctx, preprocess_result_t *result)
 {
     sensor_data_t *cleaned = &result->cleaned;
+    const preprocess_config_t *config = &ctx->config;
+    const uint32_t threshold = config->out_of_range_value_threshold;
+    bool persistent_out_of_range = false;
 
-    if (cleaned->hot_surface_ok &&
-        !preprocess_is_valid_temperature(cleaned->hot_surface_temp_c, config)) {
+    bool hot_surface_out_of_range =
+        cleaned->hot_surface_ok &&
+        !preprocess_is_valid_temperature(cleaned->hot_surface_temp_c, config);
+    bool hot_air_out_of_range =
+        cleaned->hot_air_ok &&
+        !preprocess_is_valid_temperature(cleaned->hot_air_temp_c, config);
+    bool cool_air_out_of_range =
+        cleaned->cool_air_ok &&
+        !preprocess_is_valid_temperature(cleaned->cool_air_temp_c, config);
+    bool light_out_of_range =
+        cleaned->light_ok &&
+        !preprocess_is_valid_light_level(cleaned->light_level, config);
+
+    preprocess_update_out_of_range_count(&ctx->hot_surface_out_of_range_count,
+                                         hot_surface_out_of_range);
+    preprocess_update_out_of_range_count(&ctx->hot_air_out_of_range_count,
+                                         hot_air_out_of_range);
+    preprocess_update_out_of_range_count(&ctx->cool_air_out_of_range_count,
+                                         cool_air_out_of_range);
+    preprocess_update_out_of_range_count(&ctx->light_out_of_range_count,
+                                         light_out_of_range);
+
+    persistent_out_of_range =
+        ctx->hot_surface_out_of_range_count >= threshold ||
+        ctx->hot_air_out_of_range_count >= threshold ||
+        ctx->cool_air_out_of_range_count >= threshold ||
+        ctx->light_out_of_range_count >= threshold;
+
+    if (hot_surface_out_of_range) {
         preprocess_invalidate_temperature(&cleaned->hot_surface_temp_c, &cleaned->hot_surface_ok);
         result->has_out_of_range_value = true;
     }
 
-    if (cleaned->hot_air_ok &&
-        !preprocess_is_valid_temperature(cleaned->hot_air_temp_c, config)) {
+    if (hot_air_out_of_range) {
         preprocess_invalidate_temperature(&cleaned->hot_air_temp_c, &cleaned->hot_air_ok);
         result->has_out_of_range_value = true;
     }
 
-    if (cleaned->cool_air_ok &&
-        !preprocess_is_valid_temperature(cleaned->cool_air_temp_c, config)) {
+    if (cool_air_out_of_range) {
         preprocess_invalidate_temperature(&cleaned->cool_air_temp_c, &cleaned->cool_air_ok);
         result->has_out_of_range_value = true;
     }
 
-    if (cleaned->light_ok &&
-        !preprocess_is_valid_light_level(cleaned->light_level, config)) {
+    if (light_out_of_range) {
         preprocess_invalidate_light_level(&cleaned->light_level, &cleaned->light_ok);
         result->has_out_of_range_value = true;
     }
+
+    result->has_persistent_out_of_range_value = persistent_out_of_range;
 }
 
 // preprocess_next_float_repeat_count:
@@ -136,13 +193,15 @@ static uint32_t preprocess_next_float_repeat_count(bool has_previous,
                                                    float previous_value,
                                                    bool current_ok,
                                                    float current_value,
-                                                   uint32_t previous_count)
+                                                   uint32_t previous_count,
+                                                   float epsilon_c)
 {
     if (!current_ok) {
         return 0U;
     }
 
-    if (has_previous && previous_ok && preprocess_float_equal(previous_value, current_value)) {
+    if (has_previous && previous_ok &&
+        preprocess_float_equal(previous_value, current_value, epsilon_c)) {
         return preprocess_increment_repeat_count(previous_count);
     }
 
@@ -183,6 +242,7 @@ static void preprocess_update_repeat_state(preprocess_ctx_t *ctx, preprocess_res
     const sensor_data_t *current = &result->cleaned;
     const sensor_data_t *previous = &ctx->previous;
     const uint32_t threshold = ctx->config.repeated_value_threshold;
+    const float epsilon_c = ctx->config.repeated_float_epsilon_c;
 
     ctx->hot_surface_repeat_count =
         preprocess_next_float_repeat_count(ctx->has_previous,
@@ -190,7 +250,8 @@ static void preprocess_update_repeat_state(preprocess_ctx_t *ctx, preprocess_res
                                            previous->hot_surface_temp_c,
                                            current->hot_surface_ok,
                                            current->hot_surface_temp_c,
-                                           ctx->hot_surface_repeat_count);
+                                           ctx->hot_surface_repeat_count,
+                                           epsilon_c);
 
     ctx->hot_air_repeat_count =
         preprocess_next_float_repeat_count(ctx->has_previous,
@@ -198,7 +259,8 @@ static void preprocess_update_repeat_state(preprocess_ctx_t *ctx, preprocess_res
                                            previous->hot_air_temp_c,
                                            current->hot_air_ok,
                                            current->hot_air_temp_c,
-                                           ctx->hot_air_repeat_count);
+                                           ctx->hot_air_repeat_count,
+                                           epsilon_c);
 
     ctx->cool_air_repeat_count =
         preprocess_next_float_repeat_count(ctx->has_previous,
@@ -206,7 +268,8 @@ static void preprocess_update_repeat_state(preprocess_ctx_t *ctx, preprocess_res
                                            previous->cool_air_temp_c,
                                            current->cool_air_ok,
                                            current->cool_air_temp_c,
-                                           ctx->cool_air_repeat_count);
+                                           ctx->cool_air_repeat_count,
+                                           epsilon_c);
 
     ctx->light_repeat_count =
         preprocess_next_int_repeat_count(ctx->has_previous,
@@ -277,7 +340,13 @@ static void preprocess_update_heat_source_state(preprocess_ctx_t *ctx,
         return;
     }
 
-    const bool heat_source_on = cleaned->light_level >= ctx->config.heat_source_on_light_level;
+    bool heat_source_on = false;
+    if (ctx->has_previous_heat_source_state && ctx->previous_heat_source_on) {
+        heat_source_on = cleaned->light_level >= ctx->config.heat_source_off_light_level;
+    } else {
+        heat_source_on = cleaned->light_level >= ctx->config.heat_source_on_light_level;
+    }
+
     const bool heat_source_turned_on =
         heat_source_on &&
         (!ctx->has_previous_heat_source_state || !ctx->previous_heat_source_on);
@@ -316,6 +385,122 @@ static void preprocess_update_heat_source_state(preprocess_ctx_t *ctx,
     ctx->previous_heat_source_on = heat_source_on;
 }
 
+static void preprocess_store_summary_sample(preprocess_summary_sample_t samples[],
+                                            uint32_t index,
+                                            bool value_ok,
+                                            float value)
+{
+    if (samples == NULL || index >= PREPROCESS_SUMMARY_WINDOW_SAMPLE_COUNT) {
+        return;
+    }
+
+    samples[index].ok = value_ok && isfinite(value);
+    samples[index].value = samples[index].ok ? value : 0.0f;
+}
+
+// preprocess_build_summary_value:
+// 최근 summary window 안의 유효 샘플만 사용해 평균/최솟값/최댓값을 계산하는 함수
+static preprocess_summary_value_t preprocess_build_summary_value(
+    const preprocess_summary_sample_t samples[],
+    uint32_t sample_count)
+{
+    preprocess_summary_value_t summary = {0};
+
+    if (samples == NULL) {
+        return summary;
+    }
+
+    for (uint32_t i = 0; i < sample_count && i < PREPROCESS_SUMMARY_WINDOW_SAMPLE_COUNT; i++) {
+        if (!samples[i].ok) {
+            continue;
+        }
+
+        if (summary.sample_count == 0U) {
+            summary.ok = true;
+            summary.sample_count = 1U;
+            summary.average = samples[i].value;
+            summary.min = samples[i].value;
+            summary.max = samples[i].value;
+            continue;
+        }
+
+        if (samples[i].value < summary.min) {
+            summary.min = samples[i].value;
+        }
+
+        if (samples[i].value > summary.max) {
+            summary.max = samples[i].value;
+        }
+
+        uint32_t next_count = summary.sample_count + 1U;
+        summary.average += (samples[i].value - summary.average) / (float)next_count;
+        summary.sample_count = next_count;
+    }
+
+    return summary;
+}
+
+// preprocess_update_summary:
+// 정제된 센서값과 feature를 바탕으로 최근 6샘플 평시 전송용 요약값을 갱신하는 함수
+static void preprocess_update_summary(preprocess_ctx_t *ctx, preprocess_result_t *result)
+{
+    const sensor_data_t *cleaned = &result->cleaned;
+    const uint32_t index = ctx->summary_window_index;
+
+    preprocess_store_summary_sample(ctx->hot_surface_summary_samples, index,
+                                    cleaned->hot_surface_ok, cleaned->hot_surface_temp_c);
+    preprocess_store_summary_sample(ctx->hot_air_summary_samples, index,
+                                    cleaned->hot_air_ok, cleaned->hot_air_temp_c);
+    preprocess_store_summary_sample(ctx->cool_air_summary_samples, index,
+                                    cleaned->cool_air_ok, cleaned->cool_air_temp_c);
+    preprocess_store_summary_sample(ctx->light_summary_samples, index,
+                                    cleaned->light_ok, (float)cleaned->light_level);
+    preprocess_store_summary_sample(ctx->temp_gradient_summary_samples, index,
+                                    result->temp_gradient_ok, result->temp_gradient_c);
+
+    if (ctx->summary_window_sample_count < PREPROCESS_SUMMARY_WINDOW_SAMPLE_COUNT) {
+        ctx->summary_window_sample_count++;
+    }
+
+    ctx->summary_window_index = (index + 1U) % PREPROCESS_SUMMARY_WINDOW_SAMPLE_COUNT;
+
+    result->summary.ready =
+        ctx->summary_window_sample_count >= PREPROCESS_SUMMARY_WINDOW_SAMPLE_COUNT;
+    result->summary.window_sample_count = ctx->summary_window_sample_count;
+    result->summary.window_capacity = PREPROCESS_SUMMARY_WINDOW_SAMPLE_COUNT;
+    result->summary.hot_surface_temp_c =
+        preprocess_build_summary_value(ctx->hot_surface_summary_samples,
+                                       ctx->summary_window_sample_count);
+    result->summary.hot_air_temp_c =
+        preprocess_build_summary_value(ctx->hot_air_summary_samples,
+                                       ctx->summary_window_sample_count);
+    result->summary.cool_air_temp_c =
+        preprocess_build_summary_value(ctx->cool_air_summary_samples,
+                                       ctx->summary_window_sample_count);
+    result->summary.light_level =
+        preprocess_build_summary_value(ctx->light_summary_samples,
+                                       ctx->summary_window_sample_count);
+    result->summary.temp_gradient_c =
+        preprocess_build_summary_value(ctx->temp_gradient_summary_samples,
+                                       ctx->summary_window_sample_count);
+}
+
+// preprocess_build_feature:
+// diagnosis 단계가 사용할 feature 묶음을 생성하는 함수
+static void preprocess_build_feature(preprocess_result_t *result)
+{
+    result->feature.temp_gradient_ok = result->temp_gradient_ok;
+    result->feature.temp_gradient_c = result->temp_gradient_c;
+    result->feature.heat_source_state_ok = result->heat_source_state_ok;
+    result->feature.heat_source_on = result->heat_source_on;
+    result->feature.heat_source_on_since_ms = result->heat_source_on_since_ms;
+    result->feature.heat_source_on_duration_ms = result->heat_source_on_duration_ms;
+    result->feature.surface_temp_step_delta_ok = result->surface_temp_step_delta_ok;
+    result->feature.surface_temp_step_delta_c = result->surface_temp_step_delta_c;
+    result->feature.surface_temp_rise_since_heat_on_ok = result->surface_temp_rise_since_heat_on_ok;
+    result->feature.surface_temp_rise_since_heat_on_c = result->surface_temp_rise_since_heat_on_c;
+}
+
 // preprocess_update_context_previous:
 // 다음 전처리 주기에서 사용할 이전 센서값을 저장하는 함수
 static void preprocess_update_context_previous(preprocess_ctx_t *ctx,
@@ -334,11 +519,14 @@ void preprocess_get_default_config(preprocess_config_t *out_config)
     }
 
     out_config->repeated_value_threshold = PREPROCESS_DEFAULT_REPEAT_THRESHOLD;
-    out_config->min_temp_c = PREPROCESS_DEFAULT_MIN_TEMP_C;
-    out_config->max_temp_c = PREPROCESS_DEFAULT_MAX_TEMP_C;
-    out_config->min_light_level = PREPROCESS_DEFAULT_MIN_LIGHT_LEVEL;
-    out_config->max_light_level = PREPROCESS_DEFAULT_MAX_LIGHT_LEVEL;
+    out_config->repeated_float_epsilon_c = PREPROCESS_DEFAULT_REPEAT_EPSILON_C;
+    out_config->min_temp_c = PREPROCESS_DEFAULT_SENSOR_TEMP_MIN_C;
+    out_config->max_temp_c = PREPROCESS_DEFAULT_SENSOR_TEMP_MAX_C;
+    out_config->min_light_level = PREPROCESS_DEFAULT_SENSOR_LIGHT_MIN_LEVEL;
+    out_config->max_light_level = PREPROCESS_DEFAULT_SENSOR_LIGHT_MAX_LEVEL;
     out_config->heat_source_on_light_level = PREPROCESS_DEFAULT_HEAT_SOURCE_ON_LIGHT_LEVEL;
+    out_config->heat_source_off_light_level = PREPROCESS_DEFAULT_HEAT_SOURCE_OFF_LIGHT_LEVEL;
+    out_config->out_of_range_value_threshold = PREPROCESS_DEFAULT_OUT_OF_RANGE_THRESHOLD;
 }
 
 // preprocess_init:
@@ -367,6 +555,23 @@ esp_err_t preprocess_init(preprocess_ctx_t *ctx, const preprocess_config_t *conf
     return ESP_OK;
 }
 
+esp_err_t preprocess_reset_summary(preprocess_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(ctx->hot_surface_summary_samples, 0, sizeof(ctx->hot_surface_summary_samples));
+    memset(ctx->hot_air_summary_samples, 0, sizeof(ctx->hot_air_summary_samples));
+    memset(ctx->cool_air_summary_samples, 0, sizeof(ctx->cool_air_summary_samples));
+    memset(ctx->light_summary_samples, 0, sizeof(ctx->light_summary_samples));
+    memset(ctx->temp_gradient_summary_samples, 0, sizeof(ctx->temp_gradient_summary_samples));
+    ctx->summary_window_index = 0U;
+    ctx->summary_window_sample_count = 0U;
+
+    return ESP_OK;
+}
+
 // preprocess_update:
 // 원본 센서 데이터와 센서 읽기 결과를 받아 진단 단계에서 사용할 전처리 결과를 생성하는 함수
 // 센서/데이터 이상이 하나라도 있으면 usable_for_diagnosis를 false로 설정함
@@ -387,7 +592,7 @@ esp_err_t preprocess_update(preprocess_ctx_t *ctx, const sensor_data_t *raw_data
     out_result->has_sensor_response_failure = sensor_read_err != ESP_OK;
     out_result->has_missing_value = preprocess_has_missing_value(&out_result->cleaned);
 
-    preprocess_apply_range_checks(out_result, &ctx->config);
+    preprocess_apply_range_checks(ctx, out_result);
     out_result->has_missing_value =
         out_result->has_missing_value || preprocess_has_missing_value(&out_result->cleaned);
 
@@ -395,11 +600,14 @@ esp_err_t preprocess_update(preprocess_ctx_t *ctx, const sensor_data_t *raw_data
     preprocess_calculate_temperature_gradient(out_result);
     preprocess_calculate_surface_step_delta(ctx, out_result);
     preprocess_update_heat_source_state(ctx, now_ms, out_result);
+    preprocess_build_feature(out_result);
+    preprocess_update_summary(ctx, out_result);
 
     out_result->usable_for_diagnosis =
         !out_result->has_sensor_response_failure &&
         !out_result->has_missing_value &&
         !out_result->has_out_of_range_value &&
+        !out_result->has_persistent_out_of_range_value &&
         !out_result->has_repeated_value;
 
     preprocess_update_context_previous(ctx, out_result);

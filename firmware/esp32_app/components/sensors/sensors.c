@@ -4,7 +4,8 @@
  * 역할:
  * - 사육장에 연결된 센서들의 값을 읽어오는 모듈
  * - 온열 구역 표면 온도, 온열 구역 공기 온도, 냉각 구역 공기 온도, 조도값을 수집함
- * - 센서 읽기 실패 여부와 기본적인 값 유효성도 함께 확인함
+ * - 센서 읽기 성공/실패 여부를 OK 플래그에 저장함
+ * - 사육환경/센서 물리 범위 검사는 preprocess와 diagnosis에서 분리 처리함
  * 
  */
 
@@ -26,8 +27,8 @@ static const char *TAG = "sensors";
 // DS18B20 관련 정의
 #define DS18B20_GPIO GPIO_NUM_4 // DS18B20 센서가 연결된 GPIO 핀 번호
 #define DS18B20_SENSOR_COUNT 3 // 현재 사용하는 DS18B20 센서 개수
-#define DS18B20_MIN_TEMP_C (-55.0f) // DS18B20 센서의 최소 온도 범위
-#define DS18B20_MAX_TEMP_C (125.0f) // DS18B20 센서의 최대 온도 범위
+#define DS18B20_MIN_TEMP_C (-55.0f) // DS18B20 센서 물리 유효 최소 온도
+#define DS18B20_MAX_TEMP_C (125.0f) // DS18B20 센서 물리 유효 최대 온도
 
 // BH1750 관련 정의
 #define BH1750_I2C_PORT I2C_NUM_0 // BH1750 센서가 연결된 I2C 포트 번호
@@ -64,18 +65,12 @@ static void sensors_reset_data(sensor_data_t *out_data)
     out_data->light_ok = false;
 }
 
-// sensors_is_valid_temperature:
-// DS18B20 센서에서 읽은 온도 값이 유효한지 검사
-static bool sensors_is_valid_temperature(float temp_c)
-{
-    // 온도가 유한한 숫자인지, DS18B20의 허용 범위 내에 있는지 확인
-    return isfinite(temp_c) && temp_c >= DS18B20_MIN_TEMP_C && temp_c <= DS18B20_MAX_TEMP_C;
-}
-
 // sensors_store_ds18b20_reading:
 // DS18B20 센서에서 읽은 온도 값을 sensor_data_t 구조체에 저장하는 함수
 static void sensors_store_ds18b20_reading(sensor_data_t *out_data, size_t index, float temp_c)
 {
+    // TODO: map DS18B20 ROM addresses to fixed roles: hot_surface, hot_air, cool_air.
+    // 현재는 검색 순서 기반 임시 매핑이라 센서 교체/재배선 시 역할이 뒤바뀔 수 있다.
     // index에 따라 온열 구역 표면 온도, 온열 구역 공기 온도, 냉각 구역 공기 온도 중 하나에 값을 저장하고, 해당 센서의 OK 플래그를 true로 설정
     switch (index) {
     case 0:
@@ -447,13 +442,6 @@ esp_err_t sensors_read_all(sensor_data_t *out_data)
         err = ds18b20_get_temperature(s_ds18b20[i], &temp_c);
         if (err != ESP_OK) {
             return err;
-        }
-
-        // 센서 데이터 이상치 검사: 온도가 유한한 숫자인지, DS18B20의 허용 범위 내에 있는지 확인 (전처리 단계)
-        if (!sensors_is_valid_temperature(temp_c)) {
-            ESP_LOGW(TAG, "discarding implausible DS18B20[%u] reading: %.2f C",
-                     (unsigned int)i, temp_c);
-            return ESP_ERR_INVALID_RESPONSE;
         }
 
         sensors_store_ds18b20_reading(out_data, i, temp_c);

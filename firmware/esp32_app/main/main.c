@@ -3,7 +3,8 @@
  *
  * 역할:
  * - 시스템 전체 초기화 및 실행 흐름을 관리하는 진입점
- * - sensors 모듈로 센서값을 읽고 preprocess 모듈로 진단 전처리 결과를 생성함
+ * - sensors → preprocess → diagnosis → state_logic 파이프라인을 구현
+ * - 센서 데이터 수집, 전처리, 로컬 진단, 상태 전이를 통합 관리
  */
 
 #include <stdio.h>
@@ -16,6 +17,8 @@
 
 #include "preprocess.h"
 #include "sensors.h"
+#include "diagnosis.h"
+#include "state_logic.h"
 
 static const char *TAG = "app_main";
 
@@ -34,11 +37,32 @@ static uint32_t get_uptime_ms(void)
 // 전처리 결과가 Device Fault 후보가 된 이유를 로그로 출력하는 함수
 static void log_preprocess_flags(const preprocess_result_t *result)
 {
-    ESP_LOGW(TAG, "preprocess device fault candidate: response_failure=%d, missing=%d, out_of_range=%d, repeated=%d",
+    ESP_LOGW(TAG, "preprocess device fault candidate: response_failure=%d, missing=%d, out_of_range=%d, persistent_out_of_range=%d, repeated=%d",
              (int)result->has_sensor_response_failure,
              (int)result->has_missing_value,
              (int)result->has_out_of_range_value,
+             (int)result->has_persistent_out_of_range_value,
              (int)result->has_repeated_value);
+}
+
+// print_summary_value:
+// 평시 전송용 요약값을 출력하는 함수
+static void print_summary_value(const char *label, const preprocess_summary_value_t *summary,
+                                const char *unit)
+{
+    if (label == NULL || summary == NULL || !summary->ok) {
+        return;
+    }
+
+    printf("%s summary: avg=%.2f%s, min=%.2f%s, max=%.2f%s, samples=%lu\n",
+           label,
+           summary->average,
+           unit,
+           summary->min,
+           unit,
+           summary->max,
+           unit,
+           (unsigned long)summary->sample_count);
 }
 
 // print_preprocessed_data:
@@ -55,6 +79,11 @@ static void print_preprocessed_data(const preprocess_result_t *result)
            result->heat_source_on ? "ON" : "OFF",
            (unsigned long)result->heat_source_on_duration_ms);
 
+    printf("Summary window: ready=%s, samples=%lu/%lu\n",
+           result->summary.ready ? "yes" : "no",
+           (unsigned long)result->summary.window_sample_count,
+           (unsigned long)result->summary.window_capacity);
+
     if (result->surface_temp_step_delta_ok) {
         printf("Surface temp step delta: %.2f C\n", result->surface_temp_step_delta_c);
     }
@@ -63,6 +92,42 @@ static void print_preprocessed_data(const preprocess_result_t *result)
         printf("Surface temp rise since heat on: %.2f C\n",
                result->surface_temp_rise_since_heat_on_c);
     }
+
+    print_summary_value("Hot surface temp", &result->summary.hot_surface_temp_c, " C");
+    print_summary_value("Hot air temp", &result->summary.hot_air_temp_c, " C");
+    print_summary_value("Cool air temp", &result->summary.cool_air_temp_c, " C");
+    print_summary_value("Light", &result->summary.light_level, " lux");
+    print_summary_value("Gradient", &result->summary.temp_gradient_c, " C");
+}
+
+// print_diagnosis_result:
+// 진단 결과를 로그로 출력하는 함수
+static void print_diagnosis_result(const diagnosis_result_t *result)
+{
+    printf("Diagnosis: status=%s, L_match=%u, L_grad=%u, L_safety=%u, L_final=%u, L_fault=%u, causes=0x%08lx",
+           diagnosis_get_status_name(result->final_status),
+           result->l_match,
+           result->l_grad,
+           result->l_safety,
+           result->l_final,
+           result->l_fault,
+           (unsigned long)result->cause_flags);
+    
+    if (result->fault_reason != NULL) {
+        printf(" (fault: %s)", result->fault_reason);
+    }
+    printf("\n");
+}
+
+// print_state_logic_result:
+// 상태 전이 결과를 로그로 출력하는 함수
+static void print_state_logic_result(const state_logic_result_t *result)
+{
+    printf("State: %s, Message: %s, StateChanged: %s, SendMessage: %s\n",
+           state_logic_get_state_name(result->current_state),
+           state_logic_get_message_type_name(result->message_type),
+           result->state_changed ? "yes" : "no",
+           result->should_send_message ? "yes" : "no");
 }
 
 // wait_for_sensor_ready:
@@ -86,10 +151,28 @@ void app_main(void)
 {
     unsigned int consecutive_read_failures = 0; // 센서 읽기 실패가 연속으로 발생한 횟수를 추적하는 변수
     preprocess_ctx_t preprocess_ctx = {0}; // 전처리에서 이전 센서값과 파생 상태를 저장하는 변수
+    diagnosis_ctx_t diagnosis_ctx = {0}; // 진단 컨텍스트
+    state_logic_ctx_t state_logic_ctx = {0}; // 상태 전이 컨텍스트
 
+    // 전처리 초기화
     esp_err_t preprocess_err = preprocess_init(&preprocess_ctx, NULL);
     if (preprocess_err != ESP_OK) {
         ESP_LOGE(TAG, "preprocess init failed: %s", esp_err_to_name(preprocess_err));
+        return;
+    }
+
+    // 진단 초기화
+    esp_err_t diagnosis_err = diagnosis_init(&diagnosis_ctx, NULL);
+    if (diagnosis_err != ESP_OK) {
+        ESP_LOGE(TAG, "diagnosis init failed: %s", esp_err_to_name(diagnosis_err));
+        return;
+    }
+
+    // 상태 전이 초기화 (현재 시간 사용)
+    uint32_t now_ms = get_uptime_ms();
+    esp_err_t state_logic_err = state_logic_init(&state_logic_ctx, NULL, now_ms);
+    if (state_logic_err != ESP_OK) {
+        ESP_LOGE(TAG, "state_logic init failed: %s", esp_err_to_name(state_logic_err));
         return;
     }
 
@@ -97,35 +180,77 @@ void app_main(void)
     wait_for_sensor_ready();
     TickType_t last_wake_time = xTaskGetTickCount();
 
-    // 메인 루프: 센서 데이터를 주기적으로 읽어서 출력
+    // 메인 루프: 센서 데이터를 주기적으로 읽어서 진단 및 상태 전이 실행
     while (1) {
+        now_ms = get_uptime_ms();
+        
+        // 1. 센서 값 읽기
         sensor_data_t sensor_data = {0};
-        esp_err_t err = sensors_read_all(&sensor_data);
+        esp_err_t sensor_err = sensors_read_all(&sensor_data);
+        
+        // 2. 전처리 (센서 데이터 정제, 온도 구배, 열원 상태 추적 등)
         preprocess_result_t preprocess_result = {0};
-        preprocess_err = preprocess_update(&preprocess_ctx, &sensor_data, err, get_uptime_ms(),
+        preprocess_err = preprocess_update(&preprocess_ctx, &sensor_data, sensor_err, now_ms,
                                            &preprocess_result);
         if (preprocess_err != ESP_OK) {
             ESP_LOGE(TAG, "preprocess update failed: %s", esp_err_to_name(preprocess_err));
         }
 
-        // 전처리 이상이 없어서 이후 diagnosis 단계에서 Lmatch/Lgrad/Lsafety 계산에 사용할 수 있는지 확인
+        // 3. 진단 (L_match, L_grad, L_safety 계산)
+        diagnosis_result_t diagnosis_result = {0};
+        diagnosis_err = ESP_FAIL;
+        if (preprocess_err == ESP_OK) {
+            diagnosis_err = diagnosis_update(&diagnosis_ctx, &preprocess_result, &diagnosis_result);
+            if (diagnosis_err != ESP_OK) {
+                ESP_LOGE(TAG, "diagnosis update failed: %s", esp_err_to_name(diagnosis_err));
+            }
+        }
+
+        // 4. 상태 전이 및 메시지 타입 결정
+        state_logic_result_t state_logic_result = {0};
+        state_logic_err = ESP_FAIL;
+        if (preprocess_err == ESP_OK && diagnosis_err == ESP_OK) {
+            state_logic_err = state_logic_update(&state_logic_ctx, &diagnosis_result, now_ms,
+                                                 &state_logic_result);
+            if (state_logic_err != ESP_OK) {
+                ESP_LOGE(TAG, "state_logic update failed: %s", esp_err_to_name(state_logic_err));
+            }
+        }
+
+        // 결과 출력 및 로깅
         if (preprocess_err == ESP_OK && preprocess_result.usable_for_diagnosis) {
             consecutive_read_failures = 0;
             print_preprocessed_data(&preprocess_result);
+            
+            if (diagnosis_err == ESP_OK) {
+                print_diagnosis_result(&diagnosis_result);
+            }
+            
+            if (state_logic_err == ESP_OK) {
+                print_state_logic_result(&state_logic_result);
+            }
         } else {
             if (preprocess_err == ESP_OK) {
                 log_preprocess_flags(&preprocess_result);
             }
 
-            if (err == ESP_OK && !preprocess_result.has_sensor_response_failure) {
+            if (diagnosis_err == ESP_OK) {
+                print_diagnosis_result(&diagnosis_result);
+            }
+
+            if (state_logic_err == ESP_OK) {
+                print_state_logic_result(&state_logic_result);
+            }
+
+            if (sensor_err == ESP_OK && !preprocess_result.has_sensor_response_failure) {
                 consecutive_read_failures = 0;
             } else {
                 consecutive_read_failures++;
-                ESP_LOGW(TAG, "sensor read failed: %s", esp_err_to_name(err));
+                ESP_LOGW(TAG, "sensor read failed: %s", esp_err_to_name(sensor_err));
             }
 
             // 실패가 일정 횟수 이상 연속되면 센서 재초기화 시도
-            if (err == ESP_ERR_INVALID_STATE || consecutive_read_failures >= SENSOR_RECOVERY_THRESHOLD) {
+            if (sensor_err == ESP_ERR_INVALID_STATE || consecutive_read_failures >= SENSOR_RECOVERY_THRESHOLD) {
                 ESP_LOGW(TAG, "reinitializing sensors after %u consecutive failures",
                          consecutive_read_failures);
                 sensors_deinit();
