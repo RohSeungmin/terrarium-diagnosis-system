@@ -37,11 +37,32 @@ static uint32_t get_uptime_ms(void)
 // 전처리 결과가 Device Fault 후보가 된 이유를 로그로 출력하는 함수
 static void log_preprocess_flags(const preprocess_result_t *result)
 {
-    ESP_LOGW(TAG, "preprocess device fault candidate: response_failure=%d, missing=%d, out_of_range=%d, repeated=%d",
+    ESP_LOGW(TAG, "preprocess device fault candidate: response_failure=%d, missing=%d, out_of_range=%d, persistent_out_of_range=%d, repeated=%d",
              (int)result->has_sensor_response_failure,
              (int)result->has_missing_value,
              (int)result->has_out_of_range_value,
+             (int)result->has_persistent_out_of_range_value,
              (int)result->has_repeated_value);
+}
+
+// print_summary_value:
+// 평시 전송용 요약값을 출력하는 함수
+static void print_summary_value(const char *label, const preprocess_summary_value_t *summary,
+                                const char *unit)
+{
+    if (label == NULL || summary == NULL || !summary->ok) {
+        return;
+    }
+
+    printf("%s summary: avg=%.2f%s, min=%.2f%s, max=%.2f%s, samples=%lu\n",
+           label,
+           summary->average,
+           unit,
+           summary->min,
+           unit,
+           summary->max,
+           unit,
+           (unsigned long)summary->sample_count);
 }
 
 // print_preprocessed_data:
@@ -58,6 +79,11 @@ static void print_preprocessed_data(const preprocess_result_t *result)
            result->heat_source_on ? "ON" : "OFF",
            (unsigned long)result->heat_source_on_duration_ms);
 
+    printf("Summary window: ready=%s, samples=%lu/%lu\n",
+           result->summary.ready ? "yes" : "no",
+           (unsigned long)result->summary.window_sample_count,
+           (unsigned long)result->summary.window_capacity);
+
     if (result->surface_temp_step_delta_ok) {
         printf("Surface temp step delta: %.2f C\n", result->surface_temp_step_delta_c);
     }
@@ -66,14 +92,26 @@ static void print_preprocessed_data(const preprocess_result_t *result)
         printf("Surface temp rise since heat on: %.2f C\n",
                result->surface_temp_rise_since_heat_on_c);
     }
+
+    print_summary_value("Hot surface temp", &result->summary.hot_surface_temp_c, " C");
+    print_summary_value("Hot air temp", &result->summary.hot_air_temp_c, " C");
+    print_summary_value("Cool air temp", &result->summary.cool_air_temp_c, " C");
+    print_summary_value("Light", &result->summary.light_level, " lux");
+    print_summary_value("Gradient", &result->summary.temp_gradient_c, " C");
 }
 
 // print_diagnosis_result:
 // 진단 결과를 로그로 출력하는 함수
 static void print_diagnosis_result(const diagnosis_result_t *result)
 {
-    printf("Diagnosis: L_match=%u, L_grad=%u, L_safety=%u, L_final=%u, L_fault=%u",
-           result->l_match, result->l_grad, result->l_safety, result->l_final, result->l_fault);
+    printf("Diagnosis: status=%s, L_match=%u, L_grad=%u, L_safety=%u, L_final=%u, L_fault=%u, causes=0x%08lx",
+           diagnosis_get_status_name(result->final_status),
+           result->l_match,
+           result->l_grad,
+           result->l_safety,
+           result->l_final,
+           result->l_fault,
+           (unsigned long)result->cause_flags);
     
     if (result->fault_reason != NULL) {
         printf(" (fault: %s)", result->fault_reason);
@@ -160,6 +198,7 @@ void app_main(void)
 
         // 3. 진단 (L_match, L_grad, L_safety 계산)
         diagnosis_result_t diagnosis_result = {0};
+        diagnosis_err = ESP_FAIL;
         if (preprocess_err == ESP_OK) {
             diagnosis_err = diagnosis_update(&diagnosis_ctx, &preprocess_result, &diagnosis_result);
             if (diagnosis_err != ESP_OK) {
@@ -169,6 +208,7 @@ void app_main(void)
 
         // 4. 상태 전이 및 메시지 타입 결정
         state_logic_result_t state_logic_result = {0};
+        state_logic_err = ESP_FAIL;
         if (preprocess_err == ESP_OK && diagnosis_err == ESP_OK) {
             state_logic_err = state_logic_update(&state_logic_ctx, &diagnosis_result, now_ms,
                                                  &state_logic_result);
@@ -192,6 +232,14 @@ void app_main(void)
         } else {
             if (preprocess_err == ESP_OK) {
                 log_preprocess_flags(&preprocess_result);
+            }
+
+            if (diagnosis_err == ESP_OK) {
+                print_diagnosis_result(&diagnosis_result);
+            }
+
+            if (state_logic_err == ESP_OK) {
+                print_state_logic_result(&state_logic_result);
             }
 
             if (sensor_err == ESP_OK && !preprocess_result.has_sensor_response_failure) {

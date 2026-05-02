@@ -49,8 +49,11 @@ typedef struct {
     uint8_t critical_entry_count;   // warning → critical 진입에 필요한 연속 관측 횟수 (기본값: 2)
     uint8_t normal_entry_count;     // warning/critical → normal 복귀에 필요한 연속 관측 횟수 (기본값: 3)
     
-    // 평시 모드 최소 지속 시간 (밀리초)
-    uint32_t normal_mode_min_duration_ms;   // 최소 180초
+    // normal 상태 summary 발행 주기 (밀리초)
+    uint32_t normal_summary_publish_interval_ms; // 기본 180초
+
+    // device fault 해제 조건
+    uint8_t device_fault_recovery_count; // 센서 정상 상태 연속 확인 횟수 (기본값: 3)
 } state_logic_config_t;
 
 // 상태 전이 컨텍스트 (내부 상태)
@@ -62,9 +65,15 @@ typedef struct {
     
     // 상태 진입 시각
     uint32_t state_entry_time_ms;
+
+    // 마지막 normal summary 발행 시각
+    uint32_t last_summary_publish_time_ms;
     
     // 동일 진단 결과 연속 관측 횟수
     uint8_t consecutive_count;
+
+    // device fault 상태에서 센서 정상 상태가 연속 확인된 횟수
+    uint8_t device_fault_recovery_count;
     
     // 마지막 진단 결과
     diagnosis_level_t last_diagnosis_level;

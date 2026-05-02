@@ -26,6 +26,26 @@ typedef uint8_t diagnosis_level_t;
 #define DIAGNOSIS_LEVEL_WARNING 1
 #define DIAGNOSIS_LEVEL_CRITICAL 2
 
+typedef enum {
+    DIAGNOSIS_STATUS_NORMAL,
+    DIAGNOSIS_STATUS_WARNING,
+    DIAGNOSIS_STATUS_CRITICAL,
+    DIAGNOSIS_STATUS_DEVICE_FAULT
+} diagnosis_status_t;
+
+typedef uint32_t diagnosis_cause_flags_t;
+
+#define DIAGNOSIS_CAUSE_NONE 0U
+#define DIAGNOSIS_CAUSE_L_MATCH (1U << 0)
+#define DIAGNOSIS_CAUSE_L_GRAD (1U << 1)
+#define DIAGNOSIS_CAUSE_L_SAFETY (1U << 2)
+#define DIAGNOSIS_CAUSE_SENSOR_FAULT (1U << 3)
+#define DIAGNOSIS_CAUSE_SENSOR_RESPONSE_FAILURE (1U << 4)
+#define DIAGNOSIS_CAUSE_MISSING_VALUE (1U << 5)
+#define DIAGNOSIS_CAUSE_OUT_OF_RANGE_VALUE (1U << 6)
+#define DIAGNOSIS_CAUSE_PERSISTENT_OUT_OF_RANGE_VALUE (1U << 7)
+#define DIAGNOSIS_CAUSE_REPEATED_VALUE (1U << 8)
+
 // 진단 지표
 typedef struct {
     diagnosis_level_t l_match;      // 열원 작동-환경 불일치 지표
@@ -33,22 +53,26 @@ typedef struct {
     diagnosis_level_t l_safety;     // 안전 임계값 지표
     diagnosis_level_t l_fault;      // 장치 이상 지표 (0: normal, 2: device_fault)
     diagnosis_level_t l_final;      // 최종 진단 (max(l_match, l_grad, l_safety))
+    diagnosis_status_t final_status; // 최종 진단 상태
+    diagnosis_cause_flags_t cause_flags; // 진단 원인 플래그
     const char *fault_reason;       // 장치 이상 원인 설명
 } diagnosis_result_t;
 
 // 진단 설정 
 typedef struct {
     // L_match 설정
-    uint32_t heat_warmup_time_ms;   // Heat source ON 후 온도 상승 추적 시간
-    float heat_response_threshold_c; // 최소 온도 상승량c
+    uint32_t heat_response_warning_time_ms; // Heat source ON 후 warning 판단 시간(실험 보정 대상)
+    uint32_t heat_response_critical_time_ms; // Heat source ON 후 critical 판단 시간(실험 보정 대상)
+    float heat_response_threshold_c; // 열원 ON 이후 최소 표면 온도 상승량(실험 보정 대상)
+    float basking_surface_target_min_c; // 온열 구역 표면 최소 목표 온도, ReptiFiles 기준 약 42C
     
     // L_grad 설정
-    float gradient_normal_threshold_c;  // θ_warn: normal 온도구배 임계값
-    float gradient_critical_threshold_c; // θ_crit: critical 온도구배 임계값
+    float air_gradient_normal_threshold_c;  // 온열 구역 공기 - 냉각 구역 공기 정상 구배 기준
+    float air_gradient_critical_threshold_c; // 온열 구역 공기 - 냉각 구역 공기 critical 구배 기준
     
     // L_safety 설정
-    float surface_temp_warn_c;      // T_surface,warn: 경고 수준 표면 온도
-    float surface_temp_crit_c;      // T_surface,crit: 위험 수준 표면 온도
+    float hot_surface_temp_warn_c; // 온열 구역 표면 온도 warning 기준: 45C
+    float hot_surface_temp_crit_c; // 온열 구역 표면 온도 critical 기준: 50C
 } diagnosis_config_t;
 
 // 진단 상태 컨텍스트
@@ -84,6 +108,15 @@ esp_err_t diagnosis_init(diagnosis_ctx_t *ctx, const diagnosis_config_t *config)
 esp_err_t diagnosis_update(const diagnosis_ctx_t *ctx,
                           const preprocess_result_t *preprocess_result,
                           diagnosis_result_t *out_result);
+
+/**
+ * diagnosis_get_status_name
+ * 진단 상태를 문자열로 변환 (디버깅용)
+ *
+ * @param status: 진단 상태
+ * @return 진단 상태 문자열 포인터
+ */
+const char *diagnosis_get_status_name(diagnosis_status_t status);
 
 #ifdef __cplusplus
 }
