@@ -1,0 +1,187 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+// Prisma schema for Lizard Enclosure Thermal Monitoring System
+// 건조형 도마뱀 사육장 열환경 모니터링 시스템
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ============================================================
+// (1) Node : ESP32 진단 노드
+// ============================================================
+model Node {
+  node_id      String    @id              // 예: "node-01"
+  name         String?
+  location     String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  last_seen_at DateTime?                  // 마지막 heartbeat 수신 시각
+
+  heartbeats   Heartbeat[]
+  summaries    Summary[]
+  events       Event[]
+  alerts       Alert[]
+  faults       Fault[]
+  transitions  ModeTransition[]
+
+  @@map("nodes")
+}
+
+// ============================================================
+// (2) Heartbeat : 생존 신호
+// ============================================================
+model Heartbeat {
+  id        BigInt    @id @default(autoincrement())
+  node_id   String
+  timestamp DateTime                      // 메시지 생성 시각 (ISO 8601)
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, timestamp])
+  @@map("heartbeats")
+}
+
+// ============================================================
+// (3) Summary : 평시 요약 (state=normal)
+// ============================================================
+model Summary {
+  id              BigInt        @id @default(autoincrement())
+  node_id         String
+  timestamp       DateTime
+  state           message_state @default(normal)
+
+  // 센서 필드
+  surface_temp_c  Float?                  // 온열 구역 표면 온도
+  hot_air_temp_c  Float?                  // 온열 구역 공기 온도
+  cool_air_temp_c Float?                  // 냉각 구역 공기 온도
+  light_level     Int?                    // 조도값
+  heat_source_on  Boolean?                // 열원 작동 여부
+
+  // 진단 필드
+  l_match         Int?
+  l_grad          Int?
+  l_safety        Int?
+  l_final         Int?
+  fault_reason    String?       @db.Text
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, timestamp])
+  @@map("summaries")
+}
+
+// ============================================================
+// (4) Event : Warning 이벤트
+// ============================================================
+model Event {
+  id              BigInt        @id @default(autoincrement())
+  node_id         String
+  timestamp       DateTime
+  state           message_state @default(warning)
+
+  surface_temp_c  Float?
+  hot_air_temp_c  Float?
+  cool_air_temp_c Float?
+  light_level     Int?
+  heat_source_on  Boolean?
+
+  l_match         Int?
+  l_grad          Int?
+  l_safety        Int?
+  l_final         Int?
+  fault_reason    String?       @db.Text
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, timestamp])
+  @@map("events")
+}
+
+// ============================================================
+// (5) Alert : Critical 알림
+// ============================================================
+model Alert {
+  id              BigInt        @id @default(autoincrement())
+  node_id         String
+  timestamp       DateTime
+  state           message_state @default(critical)
+
+  surface_temp_c  Float?
+  hot_air_temp_c  Float?
+  cool_air_temp_c Float?
+  light_level     Int?
+  heat_source_on  Boolean?
+
+  l_match         Int?
+  l_grad          Int?
+  l_safety        Int?
+  l_final         Int?
+  fault_reason    String?       @db.Text
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, timestamp])
+  @@map("alerts")
+}
+
+// ============================================================
+// (6) Fault : Device Fault
+// ============================================================
+model Fault {
+  id              BigInt        @id @default(autoincrement())
+  node_id         String
+  timestamp       DateTime
+  state           message_state @default(device_fault)
+
+  surface_temp_c  Float?
+  hot_air_temp_c  Float?
+  cool_air_temp_c Float?
+  light_level     Int?
+  heat_source_on  Boolean?
+
+  l_match         Int?
+  l_grad          Int?
+  l_safety        Int?
+  l_final         Int?
+  fault_reason    String        @db.Text
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, timestamp])
+  @@map("faults")
+}
+
+// ============================================================
+// (7) ModeTransition : 상태 전이 이력
+// ============================================================
+model ModeTransition {
+  id          BigInt          @id @default(autoincrement())
+  node_id     String
+  timestamp   DateTime        @default(now())
+  from_state  message_state?
+  to_state    message_state
+  reason      String?         @db.Text
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, timestamp])
+  @@map("mode_transitions")
+}
+
+// ============================================================
+// State enum
+// ============================================================
+enum message_state {
+  normal
+  warning
+  critical
+  device_fault
+}

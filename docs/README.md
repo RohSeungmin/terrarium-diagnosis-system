@@ -5,3 +5,4 @@
 
 - data-spec.md : 데이터 규격
 - git-rules.md : 브랜치 규칙
+- api-spec.md : 백엔드 API 명세서
