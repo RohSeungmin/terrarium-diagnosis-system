@@ -19,6 +19,7 @@
 #include "sensors.h"
 #include "diagnosis.h"
 #include "state_logic.h"
+#include "comms.h"
 
 static const char *TAG = "app_main";
 
@@ -153,6 +154,9 @@ void app_main(void)
     preprocess_ctx_t preprocess_ctx = {0}; // 전처리에서 이전 센서값과 파생 상태를 저장하는 변수
     diagnosis_ctx_t diagnosis_ctx = {0}; // 진단 컨텍스트
     state_logic_ctx_t state_logic_ctx = {0}; // 상태 전이 컨텍스트
+    state_logic_state_t last_known_state = STATE_NORMAL; // 마지막으로 정상 계산된 시스템 상태
+    comms_ctx_t comms_ctx = {0}; // MQTT 전송 컨텍스트
+    bool comms_ready = false; // MQTT 초기화 성공 여부. 실패해도 로컬 진단 루프는 계속 동작함
 
     // 전처리 초기화
     esp_err_t preprocess_err = preprocess_init(&preprocess_ctx, NULL);
@@ -174,6 +178,14 @@ void app_main(void)
     if (state_logic_err != ESP_OK) {
         ESP_LOGE(TAG, "state_logic init failed: %s", esp_err_to_name(state_logic_err));
         return;
+    }
+
+    esp_err_t comms_err = comms_init(&comms_ctx, NULL);
+    if (comms_err == ESP_OK) {
+        comms_ready = true;
+    } else {
+        ESP_LOGW(TAG, "comms init failed, continuing local diagnosis only: %s",
+                 esp_err_to_name(comms_err));
     }
 
     // 센서 초기화 시도 및 준비될 때까지 대기
@@ -214,6 +226,28 @@ void app_main(void)
                                                  &state_logic_result);
             if (state_logic_err != ESP_OK) {
                 ESP_LOGE(TAG, "state_logic update failed: %s", esp_err_to_name(state_logic_err));
+            } else {
+                last_known_state = state_logic_result.current_state;
+            }
+        }
+
+        // 5. MQTT 전송. 실패해도 센서 수집과 로컬 진단 루프는 계속 진행한다.
+        if (comms_ready && preprocess_err == ESP_OK && diagnosis_err == ESP_OK &&
+            state_logic_err == ESP_OK) {
+            comms_err = comms_publish_if_needed(&comms_ctx,
+                                                &preprocess_result,
+                                                &diagnosis_result,
+                                                &state_logic_result,
+                                                now_ms);
+            if (comms_err != ESP_OK && comms_err != ESP_ERR_INVALID_STATE) {
+                ESP_LOGW(TAG, "comms publish failed: %s", esp_err_to_name(comms_err));
+            }
+        }
+
+        if (comms_ready) {
+            comms_err = comms_publish_heartbeat_if_needed(&comms_ctx, last_known_state, now_ms);
+            if (comms_err != ESP_OK && comms_err != ESP_ERR_INVALID_STATE) {
+                ESP_LOGW(TAG, "comms heartbeat failed: %s", esp_err_to_name(comms_err));
             }
         }
 
