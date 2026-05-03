@@ -136,17 +136,29 @@ static void comms_json_append_int_or_null(comms_json_writer_t *writer, int value
     comms_json_append(writer, "%d", value);
 }
 
-// comms_message_type_name:
-// state_logic 메시지 타입을 서버 payload에 넣을 문자열로 변환하는 함수
-static const char *comms_message_type_name(state_logic_message_type_t message_type)
+// comms_kind_name:
+// comms 내부 메시지 종류를 서버 payload에 넣을 message_type 문자열로 변환하는 함수
+static const char *comms_kind_name(comms_message_kind_t kind)
 {
-    return state_logic_get_message_type_name(message_type);
+    switch (kind) {
+        case COMMS_MESSAGE_SUMMARY:
+            return "summary";
+        case COMMS_MESSAGE_EVENT:
+            return "event";
+        case COMMS_MESSAGE_ALERT:
+            return "alert";
+        case COMMS_MESSAGE_FAULT:
+            return "fault";
+        default:
+            return "unknown";
+    }
 }
 
 // comms_append_common_fields:
 // summary/event/alert/fault payload에 공통으로 들어가는 metadata를 추가하는 함수
 static void comms_append_common_fields(comms_json_writer_t *writer,
                                        const comms_ctx_t *ctx,
+                                       comms_message_kind_t kind,
                                        const state_logic_result_t *state_logic_result,
                                        const comms_message_policy_t *policy,
                                        uint32_t now_ms)
@@ -162,7 +174,7 @@ static void comms_append_common_fields(comms_json_writer_t *writer,
     comms_json_append_string_value(writer, state_logic_get_state_name(state_logic_result->current_state));
 
     comms_json_append(writer, ",\"message_type\":");
-    comms_json_append_string_value(writer, comms_message_type_name(state_logic_result->message_type));
+    comms_json_append_string_value(writer, comms_kind_name(kind));
 
     comms_json_append(writer, ",\"state_changed\":");
     comms_json_append_bool(writer, state_logic_result->state_changed);
@@ -319,7 +331,12 @@ static esp_err_t comms_build_summary_payload(char *payload,
         .capacity = payload_size,
     };
 
-    comms_append_common_fields(&writer, ctx, state_logic_result, policy, now_ms);
+    comms_append_common_fields(&writer,
+                               ctx,
+                               COMMS_MESSAGE_SUMMARY,
+                               state_logic_result,
+                               policy,
+                               now_ms);
 
     comms_json_append(&writer, ",\"summary\":{\"ready\":");
     comms_json_append_bool(&writer, preprocess_result->summary.ready);
@@ -368,6 +385,7 @@ static esp_err_t comms_build_diagnostic_payload(char *payload,
                                                 size_t payload_size,
                                                 const comms_ctx_t *ctx,
                                                 const comms_message_policy_t *policy,
+                                                comms_message_kind_t kind,
                                                 const preprocess_result_t *preprocess_result,
                                                 const diagnosis_result_t *diagnosis_result,
                                                 const state_logic_result_t *state_logic_result,
@@ -378,7 +396,7 @@ static esp_err_t comms_build_diagnostic_payload(char *payload,
         .capacity = payload_size,
     };
 
-    comms_append_common_fields(&writer, ctx, state_logic_result, policy, now_ms);
+    comms_append_common_fields(&writer, ctx, kind, state_logic_result, policy, now_ms);
 
     comms_json_append(&writer, ",");
     comms_append_sensor_values(&writer, preprocess_result);
@@ -412,7 +430,12 @@ static esp_err_t comms_build_fault_payload(char *payload,
         .capacity = payload_size,
     };
 
-    comms_append_common_fields(&writer, ctx, state_logic_result, policy, now_ms);
+    comms_append_common_fields(&writer,
+                               ctx,
+                               COMMS_MESSAGE_FAULT,
+                               state_logic_result,
+                               policy,
+                               now_ms);
 
     comms_json_append(&writer, ",\"fault\":{\"sensor_response_failure\":");
     comms_json_append_bool(&writer, preprocess_result->has_sensor_response_failure);
@@ -459,6 +482,11 @@ esp_err_t comms_build_payload(char *payload,
 
     payload[0] = '\0';
 
+    if (ctx == NULL || policy == NULL || preprocess_result == NULL ||
+        state_logic_result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     switch (kind) {
         case COMMS_MESSAGE_SUMMARY:
             return comms_build_summary_payload(payload,
@@ -470,15 +498,22 @@ esp_err_t comms_build_payload(char *payload,
                                                now_ms);
         case COMMS_MESSAGE_EVENT:
         case COMMS_MESSAGE_ALERT:
+            if (diagnosis_result == NULL) {
+                return ESP_ERR_INVALID_ARG;
+            }
             return comms_build_diagnostic_payload(payload,
                                                   payload_size,
                                                   ctx,
                                                   policy,
+                                                  kind,
                                                   preprocess_result,
                                                   diagnosis_result,
                                                   state_logic_result,
                                                   now_ms);
         case COMMS_MESSAGE_FAULT:
+            if (diagnosis_result == NULL) {
+                return ESP_ERR_INVALID_ARG;
+            }
             return comms_build_fault_payload(payload,
                                              payload_size,
                                              ctx,
