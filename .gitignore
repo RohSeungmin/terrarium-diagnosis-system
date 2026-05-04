@@ -44,3 +44,16 @@ components/.idf/
 
 # Optional local tool dir
 .espressif/
+
+# ===== Backend (Node.js) =====
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Prisma 캐시 (필요시)
+backend/prisma/.prisma/
