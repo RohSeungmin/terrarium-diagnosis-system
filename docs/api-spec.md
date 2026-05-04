@@ -1,9 +1,11 @@
 # API 명세서
 
+백엔드 REST API 명세. 메시지 페이로드 규격은 `docs/data-spec.md`를 따른다.
+
 ## 기본 규칙
 - 형식: JSON
 - 필드명: snake_case
-- 시간: ISO 8601
+- 시간: `timestamp_ms` (ESP32 부팅 후 ms), `received_at` (ISO 8601)
 - 결측값: null
 - state: `normal | warning | critical | device_fault`
 
@@ -23,7 +25,7 @@
   "ok": false,
   "error": {
     "code": "NODE_NOT_FOUND",
-    "message": "node_id 'node-01'을 찾을 수 없음"
+    "message": "node_id 'esp32_01'을 찾을 수 없음"
   }
 }
 ```
@@ -50,7 +52,7 @@
   "ok": true,
   "data": [
     {
-      "node_id": "node-01",
+      "node_id": "esp32_01",
       "name": "메인 사육장",
       "location": "1번 사육장",
       "created_at": "2026-04-12T20:00:00+09:00",
@@ -67,7 +69,7 @@
 **Request**
 ```json
 {
-  "node_id": "node-01",
+  "node_id": "esp32_01",
   "name": "메인 사육장",
   "location": "1번 사육장"
 }
@@ -100,24 +102,27 @@ heartbeat 수신.
 **Request**
 ```json
 {
-  "timestamp": "2026-04-12T20:00:00+09:00",
-  "node_id": "node-01",
-  "message_type": "heartbeat"
+  "schema": "terrarium-diagnosis.v1",
+  "node_id": "esp32_01",
+  "timestamp_ms": 123456,
+  "message_type": "heartbeat",
+  "state": "normal",
+  "mqtt_connected": true,
+  "uptime_ms": 123456
 }
 ```
 
 처리:
-1. `heartbeats` 테이블에 record 추가
-2. `nodes.last_seen_at`을 timestamp로 갱신
-3. 직전 상태가 device_fault였으면 `mode_transitions`에 기록
+1. `heartbeats` 테이블에 record 추가 (`received_at`은 서버 시각으로 자동 기록)
+2. `nodes.last_seen_at`을 `received_at`으로 갱신
 
 **Response 200**
 ```json
 {
   "ok": true,
   "data": {
-    "node_id": "node-01",
-    "received_at": "2026-04-12T20:00:00+09:00"
+    "node_id": "esp32_01",
+    "received_at": "2026-04-12T20:30:00+09:00"
   }
 }
 ```
@@ -140,20 +145,72 @@ heartbeat 이력.
 **Request**
 ```json
 {
-  "timestamp": "2026-04-12T20:00:00+09:00",
-  "node_id": "node-01",
-  "message_type": "summary",
+  "schema": "terrarium-diagnosis.v1",
+  "node_id": "esp32_01",
+  "timestamp_ms": 123456,
   "state": "normal",
-  "surface_temp_c": 39.2,
-  "hot_air_temp_c": 34.8,
-  "cool_air_temp_c": 27.1,
-  "light_level": 812,
-  "heat_source_on": true,
-  "l_match": 0,
-  "l_grad": 0,
-  "l_safety": 0,
-  "l_final": 0,
-  "fault_reason": null
+  "message_type": "summary",
+  "state_changed": false,
+  "qos": 0,
+  "retain": false,
+  "message_expiry_ms": 30000,
+  "summary": {
+    "ready": true,
+    "window_sample_count": 30,
+    "window_capacity": 60,
+    "hot_surface_temp_c": {
+      "ok": true,
+      "sample_count": 30,
+      "average": 39.2,
+      "min": 38.5,
+      "max": 39.8
+    },
+    "hot_air_temp_c": {
+      "ok": true,
+      "sample_count": 30,
+      "average": 34.8,
+      "min": 34.0,
+      "max": 35.5
+    },
+    "cool_air_temp_c": {
+      "ok": true,
+      "sample_count": 30,
+      "average": 27.1,
+      "min": 26.5,
+      "max": 27.8
+    },
+    "light_level": {
+      "ok": true,
+      "sample_count": 30,
+      "average": 812,
+      "min": 780,
+      "max": 850
+    },
+    "temp_gradient_c": {
+      "ok": true,
+      "sample_count": 30,
+      "average": 7.7,
+      "min": 7.0,
+      "max": 8.5
+    }
+  },
+  "heat_source": {
+    "state_ok": true,
+    "on": true,
+    "on_duration_ms": 60000
+  },
+  "sensor_status": {
+    "usable_for_diagnosis": true,
+    "response_failure": false,
+    "missing_value": false,
+    "out_of_range_value": false,
+    "persistent_out_of_range_value": false,
+    "repeated_value": false,
+    "hot_surface_ok": true,
+    "hot_air_ok": true,
+    "cool_air_ok": true,
+    "light_ok": true
+  }
 }
 ```
 
@@ -172,20 +229,55 @@ warning 이벤트 저장.
 **Request**
 ```json
 {
-  "timestamp": "2026-04-12T20:05:00+09:00",
-  "node_id": "node-01",
-  "message_type": "event",
+  "schema": "terrarium-diagnosis.v1",
+  "node_id": "esp32_01",
+  "timestamp_ms": 123456,
   "state": "warning",
-  "surface_temp_c": 41.5,
-  "hot_air_temp_c": 36.0,
-  "cool_air_temp_c": 28.0,
-  "light_level": 800,
-  "heat_source_on": true,
-  "l_match": 0,
-  "l_grad": 1,
-  "l_safety": 0,
-  "l_final": 1,
-  "fault_reason": null
+  "message_type": "event",
+  "state_changed": true,
+  "qos": 1,
+  "retain": false,
+  "message_expiry_ms": 300000,
+  "sensor_values": {
+    "hot_surface_temp_c": 41.5,
+    "hot_air_temp_c": 36.0,
+    "cool_air_temp_c": 28.0,
+    "light_level": 800
+  },
+  "features": {
+    "temp_gradient_c": 8.0,
+    "temp_gradient_ok": true,
+    "heat_source_on": true,
+    "heat_source_on_since_ms": 100000,
+    "heat_source_on_duration_ms": 23456,
+    "heat_source_state_ok": true,
+    "surface_temp_step_delta_c": 0.3,
+    "surface_temp_step_delta_ok": true,
+    "surface_temp_rise_since_heat_on_c": 2.1,
+    "surface_temp_rise_since_heat_on_ok": true
+  },
+  "diagnosis": {
+    "status": "warning",
+    "l_match": 0,
+    "l_grad": 1,
+    "l_safety": 0,
+    "l_fault": 0,
+    "l_final": 1,
+    "cause_flags": "GRAD_LOW",
+    "fault_reason": null
+  },
+  "sensor_status": {
+    "usable_for_diagnosis": true,
+    "response_failure": false,
+    "missing_value": false,
+    "out_of_range_value": false,
+    "persistent_out_of_range_value": false,
+    "repeated_value": false,
+    "hot_surface_ok": true,
+    "hot_air_ok": true,
+    "cool_air_ok": true,
+    "light_ok": true
+  }
 }
 ```
 
@@ -207,20 +299,55 @@ critical 알림 저장.
 **Request**
 ```json
 {
-  "timestamp": "2026-04-12T20:10:00+09:00",
-  "node_id": "node-01",
-  "message_type": "alert",
+  "schema": "terrarium-diagnosis.v1",
+  "node_id": "esp32_01",
+  "timestamp_ms": 234567,
   "state": "critical",
-  "surface_temp_c": 45.2,
-  "hot_air_temp_c": 38.0,
-  "cool_air_temp_c": 28.5,
-  "light_level": 800,
-  "heat_source_on": true,
-  "l_match": 0,
-  "l_grad": 1,
-  "l_safety": 2,
-  "l_final": 2,
-  "fault_reason": null
+  "message_type": "alert",
+  "state_changed": true,
+  "qos": 1,
+  "retain": false,
+  "message_expiry_ms": 1800000,
+  "sensor_values": {
+    "hot_surface_temp_c": 45.2,
+    "hot_air_temp_c": 38.0,
+    "cool_air_temp_c": 28.5,
+    "light_level": 800
+  },
+  "features": {
+    "temp_gradient_c": 9.5,
+    "temp_gradient_ok": true,
+    "heat_source_on": true,
+    "heat_source_on_since_ms": 200000,
+    "heat_source_on_duration_ms": 100000,
+    "heat_source_state_ok": true,
+    "surface_temp_step_delta_c": 0.8,
+    "surface_temp_step_delta_ok": true,
+    "surface_temp_rise_since_heat_on_c": 5.5,
+    "surface_temp_rise_since_heat_on_ok": true
+  },
+  "diagnosis": {
+    "status": "critical",
+    "l_match": 0,
+    "l_grad": 1,
+    "l_safety": 2,
+    "l_fault": 0,
+    "l_final": 2,
+    "cause_flags": "SAFETY_OVER",
+    "fault_reason": null
+  },
+  "sensor_status": {
+    "usable_for_diagnosis": true,
+    "response_failure": false,
+    "missing_value": false,
+    "out_of_range_value": false,
+    "persistent_out_of_range_value": false,
+    "repeated_value": false,
+    "hot_surface_ok": true,
+    "hot_air_ok": true,
+    "cool_air_ok": true,
+    "light_ok": true
+  }
 }
 ```
 
@@ -240,20 +367,51 @@ critical 알림 저장.
 **Request**
 ```json
 {
-  "timestamp": "2026-04-12T20:15:00+09:00",
-  "node_id": "node-01",
-  "message_type": "fault",
+  "schema": "terrarium-diagnosis.v1",
+  "node_id": "esp32_01",
+  "timestamp_ms": 345678,
   "state": "device_fault",
-  "surface_temp_c": null,
-  "hot_air_temp_c": 36.0,
-  "cool_air_temp_c": 28.0,
-  "light_level": 800,
-  "heat_source_on": true,
-  "l_match": null,
-  "l_grad": null,
-  "l_safety": null,
-  "l_final": null,
-  "fault_reason": "surface_temp_c 60초간 갱신 없음"
+  "message_type": "fault",
+  "state_changed": true,
+  "qos": 1,
+  "retain": false,
+  "message_expiry_ms": 600000,
+  "fault": {
+    "sensor_response_failure": true,
+    "missing_value": false,
+    "out_of_range_value": false,
+    "persistent_out_of_range_value": false,
+    "repeated_value": false,
+    "fault_reason": "hot_surface_temp_c 60초간 갱신 없음"
+  },
+  "sensor_values": {
+    "hot_surface_temp_c": null,
+    "hot_air_temp_c": 36.0,
+    "cool_air_temp_c": 28.0,
+    "light_level": 800
+  },
+  "diagnosis": {
+    "status": "device_fault",
+    "l_match": null,
+    "l_grad": null,
+    "l_safety": null,
+    "l_fault": 2,
+    "l_final": 2,
+    "cause_flags": null,
+    "fault_reason": "hot_surface_temp_c 60초간 갱신 없음"
+  },
+  "sensor_status": {
+    "usable_for_diagnosis": false,
+    "response_failure": true,
+    "missing_value": false,
+    "out_of_range_value": false,
+    "persistent_out_of_range_value": false,
+    "repeated_value": false,
+    "hot_surface_ok": false,
+    "hot_air_ok": true,
+    "cool_air_ok": true,
+    "light_ok": true
+  }
 }
 ```
 
@@ -277,7 +435,7 @@ critical 알림 저장.
   "data": [
     {
       "id": 1,
-      "node_id": "node-01",
+      "node_id": "esp32_01",
       "timestamp": "2026-04-12T20:05:00+09:00",
       "from_state": "normal",
       "to_state": "warning",
@@ -288,7 +446,7 @@ critical 알림 저장.
 ```
 
 ### `GET /api/nodes/:node_id/transitions/diagnostic-entries`
-진단 모드 진입 시점만 필터링.
+진단 모드 진입 시점만 필터링 (normal → warning/critical 전이).
 
 ---
 
@@ -315,7 +473,7 @@ critical 알림 저장.
 ### `GET /api/dashboard/temperature-trend`
 온도 추이.
 
-**Query**: `node_id`, `from`, `to`, `interval` (예: `1m` / `5m` / `1h`)
+**Query**: `node_id`, `from`, `to`, `interval` (`1m` / `5m` / `1h`)
 
 **Response 200**
 ```json
@@ -323,10 +481,11 @@ critical 알림 저장.
   "ok": true,
   "data": [
     {
-      "timestamp": "2026-04-12T20:00:00+09:00",
-      "surface_temp_c": 39.2,
-      "hot_air_temp_c": 34.8,
-      "cool_air_temp_c": 27.1
+      "timestamp_ms": 100000,
+      "received_at": "2026-04-12T20:00:00+09:00",
+      "hot_surface_temp_avg": 39.2,
+      "hot_air_temp_avg": 34.8,
+      "cool_air_temp_avg": 27.1
     }
   ]
 }
@@ -349,11 +508,11 @@ critical 알림 저장.
 ## 9. MQTT 토픽
 
 ```
-terrarium/<node_id>/summary
-terrarium/<node_id>/event
-terrarium/<node_id>/alert
-terrarium/<node_id>/fault
-terrarium/<node_id>/heartbeat
+terrarium/terrarium_01/<node_id>/summary
+terrarium/terrarium_01/<node_id>/event
+terrarium/terrarium_01/<node_id>/alert
+terrarium/terrarium_01/<node_id>/fault
+terrarium/terrarium_01/<node_id>/heartbeat
 ```
 
 | state | topic | QoS | Expiry |
@@ -362,8 +521,9 @@ terrarium/<node_id>/heartbeat
 | warning | event | 1 | 300s |
 | critical | alert | 1 | 1800s |
 | device_fault | fault | 1 | 600s |
+| - | heartbeat | 0 | 발행 주기의 2배 |
 
-메시지 페이로드는 data-spec.md 규격을 따른다.
+페이로드 규격은 `docs/data-spec.md`를 참조.
 
 ---
 
