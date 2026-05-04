@@ -1,0 +1,338 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+// Prisma schema for Lizard Enclosure Thermal Monitoring System
+// 건조형 도마뱀 사육장 열환경 모니터링 시스템
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ============================================================
+// State enum
+// ============================================================
+enum message_state {
+  normal
+  warning
+  critical
+  device_fault
+}
+
+// ============================================================
+// (1) Node : ESP32 진단 노드
+// ============================================================
+model Node {
+  node_id      String    @id
+  name         String?
+  location     String?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  last_seen_at DateTime?
+
+  heartbeats  Heartbeat[]
+  summaries   Summary[]
+  events      Event[]
+  alerts      Alert[]
+  faults      Fault[]
+  transitions ModeTransition[]
+
+  @@map("nodes")
+}
+
+// ============================================================
+// (2) Heartbeat : 생존 신호
+// ============================================================
+model Heartbeat {
+  id             BigInt        @id @default(autoincrement())
+  schema_name    String        @default("terrarium-diagnosis.v1")
+  node_id        String
+  timestamp_ms   BigInt
+  received_at    DateTime      @default(now())
+  state          message_state
+  mqtt_connected Boolean
+  uptime_ms      BigInt
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, received_at])
+  @@map("heartbeats")
+}
+
+// ============================================================
+// (3) Summary : 평시 요약 (state=normal)
+// ============================================================
+model Summary {
+  id                BigInt        @id @default(autoincrement())
+  schema_name       String        @default("terrarium-diagnosis.v1")
+  node_id           String
+  timestamp_ms      BigInt
+  received_at       DateTime      @default(now())
+  state             message_state @default(normal)
+  state_changed     Boolean       @default(false)
+  qos               Int           @default(0)
+  retain            Boolean       @default(false)
+  message_expiry_ms Int           @default(30000)
+
+  // summary window
+  ready               Boolean
+  window_sample_count Int
+  window_capacity     Int
+
+  // hot_surface_temp_c (요약 통계)
+  hot_surface_temp_ok    Boolean
+  hot_surface_temp_count Int?
+  hot_surface_temp_avg   Float?
+  hot_surface_temp_min   Float?
+  hot_surface_temp_max   Float?
+
+  // hot_air_temp_c (요약 통계)
+  hot_air_temp_ok    Boolean
+  hot_air_temp_count Int?
+  hot_air_temp_avg   Float?
+  hot_air_temp_min   Float?
+  hot_air_temp_max   Float?
+
+  // cool_air_temp_c (요약 통계)
+  cool_air_temp_ok    Boolean
+  cool_air_temp_count Int?
+  cool_air_temp_avg   Float?
+  cool_air_temp_min   Float?
+  cool_air_temp_max   Float?
+
+  // light_level (요약 통계)
+  light_level_ok    Boolean
+  light_level_count Int?
+  light_level_avg   Float?
+  light_level_min   Float?
+  light_level_max   Float?
+
+  // temp_gradient_c (요약 통계)
+  temp_gradient_ok    Boolean
+  temp_gradient_count Int?
+  temp_gradient_avg   Float?
+  temp_gradient_min   Float?
+  temp_gradient_max   Float?
+
+  // heat_source
+  heat_source_state_ok       Boolean
+  heat_source_on             Boolean?
+  heat_source_on_duration_ms BigInt?
+
+  // sensor_status
+  usable_for_diagnosis          Boolean
+  response_failure              Boolean
+  missing_value                 Boolean
+  out_of_range_value            Boolean
+  persistent_out_of_range_value Boolean
+  repeated_value                Boolean
+  hot_surface_ok                Boolean
+  hot_air_ok                    Boolean
+  cool_air_ok                   Boolean
+  light_ok                      Boolean
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, received_at])
+  @@map("summaries")
+}
+
+// ============================================================
+// (4) Event : Warning 이벤트
+// ============================================================
+model Event {
+  id                BigInt        @id @default(autoincrement())
+  schema_name       String        @default("terrarium-diagnosis.v1")
+  node_id           String
+  timestamp_ms      BigInt
+  received_at       DateTime      @default(now())
+  state             message_state @default(warning)
+  state_changed     Boolean       @default(false)
+  qos               Int           @default(1)
+  retain            Boolean       @default(false)
+  message_expiry_ms Int           @default(300000)
+
+  // sensor_values
+  hot_surface_temp_c Float?
+  hot_air_temp_c     Float?
+  cool_air_temp_c    Float?
+  light_level        Int?
+
+  // features
+  temp_gradient_c                    Float?
+  temp_gradient_ok                   Boolean
+  heat_source_on                     Boolean?
+  heat_source_on_since_ms            BigInt?
+  heat_source_on_duration_ms         BigInt?
+  heat_source_state_ok               Boolean
+  surface_temp_step_delta_c          Float?
+  surface_temp_step_delta_ok         Boolean
+  surface_temp_rise_since_heat_on_c  Float?
+  surface_temp_rise_since_heat_on_ok Boolean
+
+  // diagnosis
+  diag_status  message_state
+  l_match      Int
+  l_grad       Int
+  l_safety     Int
+  l_fault      Int
+  l_final      Int
+  cause_flags  String?       @db.Text
+  fault_reason String?       @db.Text
+
+  // sensor_status
+  usable_for_diagnosis          Boolean
+  response_failure              Boolean
+  missing_value                 Boolean
+  out_of_range_value            Boolean
+  persistent_out_of_range_value Boolean
+  repeated_value                Boolean
+  hot_surface_ok                Boolean
+  hot_air_ok                    Boolean
+  cool_air_ok                   Boolean
+  light_ok                      Boolean
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, received_at])
+  @@map("events")
+}
+
+// ============================================================
+// (5) Alert : Critical 알림
+// ============================================================
+model Alert {
+  id                BigInt        @id @default(autoincrement())
+  schema_name       String        @default("terrarium-diagnosis.v1")
+  node_id           String
+  timestamp_ms      BigInt
+  received_at       DateTime      @default(now())
+  state             message_state @default(critical)
+  state_changed     Boolean       @default(false)
+  qos               Int           @default(1)
+  retain            Boolean       @default(false)
+  message_expiry_ms Int           @default(1800000)
+
+  // sensor_values
+  hot_surface_temp_c Float?
+  hot_air_temp_c     Float?
+  cool_air_temp_c    Float?
+  light_level        Int?
+
+  // features
+  temp_gradient_c                    Float?
+  temp_gradient_ok                   Boolean
+  heat_source_on                     Boolean?
+  heat_source_on_since_ms            BigInt?
+  heat_source_on_duration_ms         BigInt?
+  heat_source_state_ok               Boolean
+  surface_temp_step_delta_c          Float?
+  surface_temp_step_delta_ok         Boolean
+  surface_temp_rise_since_heat_on_c  Float?
+  surface_temp_rise_since_heat_on_ok Boolean
+
+  // diagnosis
+  diag_status  message_state
+  l_match      Int
+  l_grad       Int
+  l_safety     Int
+  l_fault      Int
+  l_final      Int
+  cause_flags  String?       @db.Text
+  fault_reason String?       @db.Text
+
+  // sensor_status
+  usable_for_diagnosis          Boolean
+  response_failure              Boolean
+  missing_value                 Boolean
+  out_of_range_value            Boolean
+  persistent_out_of_range_value Boolean
+  repeated_value                Boolean
+  hot_surface_ok                Boolean
+  hot_air_ok                    Boolean
+  cool_air_ok                   Boolean
+  light_ok                      Boolean
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, received_at])
+  @@map("alerts")
+}
+
+// ============================================================
+// (6) Fault : Device Fault
+// ============================================================
+model Fault {
+  id                BigInt        @id @default(autoincrement())
+  schema_name       String        @default("terrarium-diagnosis.v1")
+  node_id           String
+  timestamp_ms      BigInt
+  received_at       DateTime      @default(now())
+  state             message_state @default(device_fault)
+  state_changed     Boolean       @default(false)
+  qos               Int           @default(1)
+  retain            Boolean       @default(false)
+  message_expiry_ms Int           @default(600000)
+
+  // fault 객체
+  fault_response_failure        Boolean
+  fault_missing_value           Boolean
+  fault_out_of_range_value      Boolean
+  fault_persistent_out_of_range Boolean
+  fault_repeated_value          Boolean
+
+  // sensor_values
+  hot_surface_temp_c Float?
+  hot_air_temp_c     Float?
+  cool_air_temp_c    Float?
+  light_level        Int?
+
+  // diagnosis (일부만 사용 가능, null 허용)
+  diag_status  message_state?
+  l_match      Int?
+  l_grad       Int?
+  l_safety     Int?
+  l_fault      Int?
+  l_final      Int?
+  cause_flags  String?       @db.Text
+  fault_reason String        @db.Text
+
+  // sensor_status
+  usable_for_diagnosis          Boolean
+  response_failure              Boolean
+  missing_value                 Boolean
+  out_of_range_value            Boolean
+  persistent_out_of_range_value Boolean
+  repeated_value                Boolean
+  hot_surface_ok                Boolean
+  hot_air_ok                    Boolean
+  cool_air_ok                   Boolean
+  light_ok                      Boolean
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, received_at])
+  @@map("faults")
+}
+
+// ============================================================
+// (7) ModeTransition : 상태 전이 이력
+// ============================================================
+model ModeTransition {
+  id         BigInt          @id @default(autoincrement())
+  node_id    String
+  timestamp  DateTime        @default(now())
+  from_state message_state?
+  to_state   message_state
+  reason     String?         @db.Text
+
+  node Node @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@index([node_id, timestamp])
+  @@map("mode_transitions")
+}
