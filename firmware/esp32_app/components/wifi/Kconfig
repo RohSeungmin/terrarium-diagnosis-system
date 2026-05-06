@@ -1,0 +1,25 @@
+menu "Terrarium WiFi"
+
+    config TERRARIUM_WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            terrarium 노드가 station 모드로 연결할 WiFi SSID.
+
+    config TERRARIUM_WIFI_PASSWORD
+        string "WiFi password"
+        default ""
+        help
+            terrarium 노드가 사용할 WiFi 비밀번호. open network인 경우 비워둔다.
+
+    config TERRARIUM_WIFI_CONNECT_TIMEOUT_MS
+        int "WiFi connect timeout in milliseconds"
+        default 15000
+        range 1000 120000
+
+    config TERRARIUM_WIFI_MAX_RETRY_COUNT
+        int "WiFi reconnect retry count"
+        default 5
+        range 0 20
+
+endmenu
