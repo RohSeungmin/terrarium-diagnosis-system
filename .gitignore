@@ -57,3 +57,6 @@ components/.idf/
 
 # Prisma 캐시 (필요시)
 backend/prisma/.prisma/
+
+# Prisma 생성 클라이언트
+backend/generated/
