@@ -3228,6 +3228,17 @@ CONFIG_WL_SECTOR_SIZE=4096
 # end of Wear Levelling
 
 #
+# Terrarium WiFi
+#
+CONFIG_TERRARIUM_WIFI_SSID="iPhone"
+CONFIG_TERRARIUM_WIFI_PASSWORD="i9we4kdm"
+# default:
+CONFIG_TERRARIUM_WIFI_CONNECT_TIMEOUT_MS=15000
+# default:
+CONFIG_TERRARIUM_WIFI_MAX_RETRY_COUNT=5
+# end of Terrarium WiFi
+
+#
 # ESP-MQTT Configurations
 #
 # default:
