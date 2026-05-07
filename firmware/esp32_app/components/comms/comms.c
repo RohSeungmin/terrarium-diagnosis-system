@@ -280,7 +280,6 @@ void comms_get_default_config(comms_config_t *out_config)
 
 // comms_init:
 // MQTT 클라이언트를 초기화하고 broker 연결을 시작하는 함수
-// Wi-Fi 연결 설정은 제안서 범위 밖이므로 별도 초기화 코드에서 처리해야 함
 esp_err_t comms_init(comms_ctx_t *ctx, const comms_config_t *config)
 {
     comms_config_t effective_config;

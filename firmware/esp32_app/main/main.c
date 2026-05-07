@@ -20,6 +20,7 @@
 #include "diagnosis.h"
 #include "state_logic.h"
 #include "comms.h"
+#include "wifi_manager.h"
 
 static const char *TAG = "app_main";
 
@@ -157,6 +158,7 @@ void app_main(void)
     state_logic_state_t last_known_state = STATE_NORMAL; // 마지막으로 정상 계산된 시스템 상태
     comms_ctx_t comms_ctx = {0}; // MQTT 전송 컨텍스트
     bool comms_ready = false; // MQTT 초기화 성공 여부. 실패해도 로컬 진단 루프는 계속 동작함
+    esp_err_t comms_err = ESP_OK;
 
     // 전처리 초기화
     esp_err_t preprocess_err = preprocess_init(&preprocess_ctx, NULL);
@@ -180,12 +182,18 @@ void app_main(void)
         return;
     }
 
-    esp_err_t comms_err = comms_init(&comms_ctx, NULL);
-    if (comms_err == ESP_OK) {
-        comms_ready = true;
+    esp_err_t wifi_err = wifi_manager_connect(NULL);
+    if (wifi_err == ESP_OK) {
+        comms_err = comms_init(&comms_ctx, NULL);
+        if (comms_err == ESP_OK) {
+            comms_ready = true;
+        } else {
+            ESP_LOGW(TAG, "comms init failed, continuing local diagnosis only: %s",
+                     esp_err_to_name(comms_err));
+        }
     } else {
-        ESP_LOGW(TAG, "comms init failed, continuing local diagnosis only: %s",
-                 esp_err_to_name(comms_err));
+        ESP_LOGW(TAG, "WiFi connect failed, continuing local diagnosis only: %s",
+                 esp_err_to_name(wifi_err));
     }
 
     // 센서 초기화 시도 및 준비될 때까지 대기
