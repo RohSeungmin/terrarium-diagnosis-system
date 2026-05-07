@@ -1,20 +1,26 @@
 {
   "name": "terrarium-diagnosis-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "건조형 도마뱀 사육장 백엔드 서버",
+  "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@prisma/adapter-mariadb": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "mariadb": "^3.5.2",
     "mqtt": "^5.15.1"
   },
   "devDependencies": {
