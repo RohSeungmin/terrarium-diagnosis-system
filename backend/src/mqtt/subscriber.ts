@@ -1,4 +1,5 @@
-import mqtt from 'mqtt';
+import 'dotenv/config';
+import mqtt, { MqttClient } from 'mqtt';
 import { prisma } from '../prisma';
 
 const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
@@ -6,13 +7,21 @@ const TOPIC_PREFIX = process.env.MQTT_TOPIC_PREFIX || 'terrarium/terrarium_01';
 
 const TOPICS = [
   `${TOPIC_PREFIX}/+/heartbeat`,
+  `${TOPIC_PREFIX}/+/summary`,
   `${TOPIC_PREFIX}/+/event`,
   `${TOPIC_PREFIX}/+/alert`,
   `${TOPIC_PREFIX}/+/fault`,
 ];
 
+let client: MqttClient | null = null;
+
 export function startMqttSubscriber() {
-  const client = mqtt.connect(MQTT_BROKER_URL, {
+  if (client) {
+    console.log('[MQTT] subscriber already started');
+    return client;
+  }
+
+  client = mqtt.connect(MQTT_BROKER_URL, {
     clientId: `backend_${Math.random().toString(16).slice(2)}`,
     clean: true,
     reconnectPeriod: 3000,
@@ -22,7 +31,7 @@ export function startMqttSubscriber() {
     console.log(`[MQTT] connected: ${MQTT_BROKER_URL}`);
 
     for (const topic of TOPICS) {
-      client.subscribe(topic, { qos: 1 }, (err) => {
+      client?.subscribe(topic, { qos: 1 }, (err) => {
         if (err) {
           console.error(`[MQTT] subscribe failed: ${topic}`, err);
         } else {
@@ -43,6 +52,8 @@ export function startMqttSubscriber() {
 
       if (messageType === 'heartbeat') {
         await saveHeartbeat(data);
+      } else if (messageType === 'summary') {
+        await saveSummary(data);
       } else if (messageType === 'event') {
         await saveEvent(data);
       } else if (messageType === 'alert') {
@@ -64,6 +75,12 @@ export function startMqttSubscriber() {
   client.on('reconnect', () => {
     console.log('[MQTT] reconnecting...');
   });
+
+  client.on('close', () => {
+    console.log('[MQTT] connection closed');
+  });
+
+  return client;
 }
 
 async function upsertNode(node_id: string) {
@@ -72,6 +89,19 @@ async function upsertNode(node_id: string) {
     update: { last_seen_at: new Date() },
     create: { node_id, last_seen_at: new Date() },
   });
+}
+
+function toBigIntOrNull(value: unknown): bigint | null {
+  if (value === undefined || value === null || value === '') return null;
+  return BigInt(value as string | number | bigint);
+}
+
+function statBlock(source: any, key: string) {
+  return source?.[key] ?? source?.summary?.[key] ?? null;
+}
+
+function boolValue(value: unknown, fallback = false): boolean {
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 async function saveHeartbeat(body: any) {
@@ -98,6 +128,103 @@ async function saveHeartbeat(body: any) {
       state,
       mqtt_connected: mqtt_connected ?? true,
       uptime_ms: BigInt(uptime_ms ?? 0),
+    },
+  });
+}
+
+async function saveSummary(body: any) {
+  const {
+    schema: schema_name,
+    node_id,
+    timestamp_ms,
+    state,
+    state_changed,
+    qos,
+    retain,
+    message_expiry_ms,
+    sensor_status,
+  } = body;
+
+  const summary = body.summary ?? body;
+
+  if (!node_id || timestamp_ms === undefined) {
+    throw new Error('summary 필수값 누락');
+  }
+
+  if (!sensor_status) {
+    throw new Error('summary sensor_status 누락');
+  }
+
+  const hotSurface = statBlock(summary, 'hot_surface_temp_c');
+  const hotAir = statBlock(summary, 'hot_air_temp_c');
+  const coolAir = statBlock(summary, 'cool_air_temp_c');
+  const light = statBlock(summary, 'light_level');
+  const tempGradient = statBlock(summary, 'temp_gradient_c');
+  const heatSource = summary.heat_source ?? body.heat_source ?? {};
+
+  await upsertNode(node_id);
+
+  await prisma.summary.create({
+    data: {
+      schema_name: schema_name || 'terrarium-diagnosis.v1',
+      node_id,
+      timestamp_ms: BigInt(timestamp_ms),
+      state: state ?? 'normal',
+      state_changed: state_changed ?? false,
+      qos: qos ?? 0,
+      retain: retain ?? false,
+      message_expiry_ms: message_expiry_ms ?? 30000,
+
+      ready: boolValue(summary.ready),
+      window_sample_count: summary.window_sample_count ?? summary.sample_count ?? 0,
+      window_capacity: summary.window_capacity ?? summary.capacity ?? 0,
+
+      hot_surface_temp_ok: boolValue(hotSurface?.ok),
+      hot_surface_temp_count: hotSurface?.count ?? null,
+      hot_surface_temp_avg: hotSurface?.avg ?? null,
+      hot_surface_temp_min: hotSurface?.min ?? null,
+      hot_surface_temp_max: hotSurface?.max ?? null,
+
+      hot_air_temp_ok: boolValue(hotAir?.ok),
+      hot_air_temp_count: hotAir?.count ?? null,
+      hot_air_temp_avg: hotAir?.avg ?? null,
+      hot_air_temp_min: hotAir?.min ?? null,
+      hot_air_temp_max: hotAir?.max ?? null,
+
+      cool_air_temp_ok: boolValue(coolAir?.ok),
+      cool_air_temp_count: coolAir?.count ?? null,
+      cool_air_temp_avg: coolAir?.avg ?? null,
+      cool_air_temp_min: coolAir?.min ?? null,
+      cool_air_temp_max: coolAir?.max ?? null,
+
+      light_level_ok: boolValue(light?.ok),
+      light_level_count: light?.count ?? null,
+      light_level_avg: light?.avg ?? null,
+      light_level_min: light?.min ?? null,
+      light_level_max: light?.max ?? null,
+
+      temp_gradient_ok: boolValue(tempGradient?.ok),
+      temp_gradient_count: tempGradient?.count ?? null,
+      temp_gradient_avg: tempGradient?.avg ?? null,
+      temp_gradient_min: tempGradient?.min ?? null,
+      temp_gradient_max: tempGradient?.max ?? null,
+
+      heat_source_state_ok: boolValue(heatSource?.state_ok ?? heatSource?.heat_source_state_ok),
+      heat_source_on: heatSource?.on ?? heatSource?.heat_source_on ?? null,
+      heat_source_on_duration_ms: toBigIntOrNull(
+        heatSource?.on_duration_ms ?? heatSource?.heat_source_on_duration_ms,
+      ),
+
+      usable_for_diagnosis: sensor_status.usable_for_diagnosis,
+      response_failure: sensor_status.response_failure,
+      missing_value: sensor_status.missing_value,
+      out_of_range_value: sensor_status.out_of_range_value,
+      persistent_out_of_range_value: sensor_status.persistent_out_of_range_value,
+      repeated_value: sensor_status.repeated_value,
+      hot_surface_ok: sensor_status.hot_surface_ok,
+      hot_air_ok: sensor_status.hot_air_ok,
+      cool_air_ok: sensor_status.cool_air_ok,
+      light_ok: sensor_status.light_ok,
     },
   });
 }
@@ -147,14 +274,8 @@ async function saveEvent(body: any) {
       temp_gradient_c: features?.temp_gradient_c ?? null,
       temp_gradient_ok: features?.temp_gradient_ok ?? false,
       heat_source_on: features?.heat_source_on ?? null,
-      heat_source_on_since_ms:
-        features?.heat_source_on_since_ms !== undefined && features?.heat_source_on_since_ms !== null
-          ? BigInt(features.heat_source_on_since_ms)
-          : null,
-      heat_source_on_duration_ms:
-        features?.heat_source_on_duration_ms !== undefined && features?.heat_source_on_duration_ms !== null
-          ? BigInt(features.heat_source_on_duration_ms)
-          : null,
+      heat_source_on_since_ms: toBigIntOrNull(features?.heat_source_on_since_ms),
+      heat_source_on_duration_ms: toBigIntOrNull(features?.heat_source_on_duration_ms),
       heat_source_state_ok: features?.heat_source_state_ok ?? false,
       surface_temp_step_delta_c: features?.surface_temp_step_delta_c ?? null,
       surface_temp_step_delta_ok: features?.surface_temp_step_delta_ok ?? false,
@@ -185,10 +306,6 @@ async function saveEvent(body: any) {
 }
 
 async function saveAlert(body: any) {
-  await saveEventLikeAlert(body);
-}
-
-async function saveEventLikeAlert(body: any) {
   const {
     schema: schema_name,
     node_id,
@@ -233,14 +350,8 @@ async function saveEventLikeAlert(body: any) {
       temp_gradient_c: features?.temp_gradient_c ?? null,
       temp_gradient_ok: features?.temp_gradient_ok ?? false,
       heat_source_on: features?.heat_source_on ?? null,
-      heat_source_on_since_ms:
-        features?.heat_source_on_since_ms !== undefined && features?.heat_source_on_since_ms !== null
-          ? BigInt(features.heat_source_on_since_ms)
-          : null,
-      heat_source_on_duration_ms:
-        features?.heat_source_on_duration_ms !== undefined && features?.heat_source_on_duration_ms !== null
-          ? BigInt(features.heat_source_on_duration_ms)
-          : null,
+      heat_source_on_since_ms: toBigIntOrNull(features?.heat_source_on_since_ms),
+      heat_source_on_duration_ms: toBigIntOrNull(features?.heat_source_on_duration_ms),
       heat_source_state_ok: features?.heat_source_state_ok ?? false,
       surface_temp_step_delta_c: features?.surface_temp_step_delta_c ?? null,
       surface_temp_step_delta_ok: features?.surface_temp_step_delta_ok ?? false,
