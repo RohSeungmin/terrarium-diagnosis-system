@@ -105,6 +105,38 @@ static void comms_json_append_string_value(comms_json_writer_t *writer, const ch
     comms_json_append(writer, "\"");
 }
 
+// comms_cause_flags_name:
+// 내부 비트마스크 원인 플래그를 서버 저장용 문자열 코드로 변환하는 함수
+static const char *comms_cause_flags_name(diagnosis_cause_flags_t flags)
+{
+    if ((flags & DIAGNOSIS_CAUSE_L_SAFETY) != 0U) {
+        return "SAFETY_OVER";
+    }
+    if ((flags & DIAGNOSIS_CAUSE_L_GRAD) != 0U) {
+        return "GRAD_LOW";
+    }
+    if ((flags & DIAGNOSIS_CAUSE_L_MATCH) != 0U) {
+        return "HEAT_RESPONSE_LOW";
+    }
+    if ((flags & DIAGNOSIS_CAUSE_SENSOR_RESPONSE_FAILURE) != 0U) {
+        return "SENSOR_RESPONSE_FAILURE";
+    }
+    if ((flags & DIAGNOSIS_CAUSE_PERSISTENT_OUT_OF_RANGE_VALUE) != 0U) {
+        return "PERSISTENT_OUT_OF_RANGE_VALUE";
+    }
+    if ((flags & DIAGNOSIS_CAUSE_OUT_OF_RANGE_VALUE) != 0U) {
+        return "OUT_OF_RANGE_VALUE";
+    }
+    if ((flags & DIAGNOSIS_CAUSE_MISSING_VALUE) != 0U) {
+        return "MISSING_VALUE";
+    }
+    if ((flags & DIAGNOSIS_CAUSE_REPEATED_VALUE) != 0U) {
+        return "REPEATED_VALUE";
+    }
+
+    return NULL;
+}
+
 // comms_json_append_bool:
 // bool 값을 JSON true/false 값으로 추가하는 함수
 static void comms_json_append_bool(comms_json_writer_t *writer, bool value)
@@ -309,8 +341,8 @@ static void comms_append_diagnosis(comms_json_writer_t *writer,
     comms_json_append(writer, ",\"l_safety\":%u", (unsigned int)diagnosis_result->l_safety);
     comms_json_append(writer, ",\"l_fault\":%u", (unsigned int)diagnosis_result->l_fault);
     comms_json_append(writer, ",\"l_final\":%u", (unsigned int)diagnosis_result->l_final);
-    comms_json_append(writer, ",\"cause_flags\":%lu",
-                      (unsigned long)diagnosis_result->cause_flags);
+    comms_json_append(writer, ",\"cause_flags\":");
+    comms_json_append_string_value(writer, comms_cause_flags_name(diagnosis_result->cause_flags));
     comms_json_append(writer, ",\"fault_reason\":");
     comms_json_append_string_value(writer, diagnosis_result->fault_reason);
     comms_json_append(writer, "}");
