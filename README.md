@@ -7,6 +7,7 @@
 - firmware: ESP32 펌웨어
 - backend: 서버
 - docs: 문서
+- mqtt-broker: mqtt 설정 파일
 
 ## 프로젝트 목표
 
