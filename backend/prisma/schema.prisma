@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 // Prisma schema for Lizard Enclosure Thermal Monitoring System
 // 건조형 도마뱀 사육장 열환경 모니터링 시스템
 
@@ -85,42 +80,42 @@ model Summary {
   window_sample_count Int
   window_capacity     Int
 
-  // hot_surface_temp_c (요약 통계)
+  // hot_surface_temp_c 요약 통계
   hot_surface_temp_ok    Boolean
   hot_surface_temp_count Int?
   hot_surface_temp_avg   Float?
   hot_surface_temp_min   Float?
   hot_surface_temp_max   Float?
 
-  // hot_air_temp_c (요약 통계)
+  // hot_air_temp_c 요약 통계
   hot_air_temp_ok    Boolean
   hot_air_temp_count Int?
   hot_air_temp_avg   Float?
   hot_air_temp_min   Float?
   hot_air_temp_max   Float?
 
-  // cool_air_temp_c (요약 통계)
+  // cool_air_temp_c 요약 통계
   cool_air_temp_ok    Boolean
   cool_air_temp_count Int?
   cool_air_temp_avg   Float?
   cool_air_temp_min   Float?
   cool_air_temp_max   Float?
 
-  // light_level (요약 통계)
+  // light_level 요약 통계
   light_level_ok    Boolean
   light_level_count Int?
   light_level_avg   Float?
   light_level_min   Float?
   light_level_max   Float?
 
-  // temp_gradient_c (요약 통계)
+  // temp_gradient_c 요약 통계
   temp_gradient_ok    Boolean
   temp_gradient_count Int?
   temp_gradient_avg   Float?
   temp_gradient_min   Float?
   temp_gradient_max   Float?
 
-  // heat_source
+  // heat_source (최상위 heat_source 블록 - fix #4)
   heat_source_state_ok       Boolean
   heat_source_on             Boolean?
   heat_source_on_duration_ms BigInt?
@@ -165,18 +160,19 @@ model Event {
   light_level        Int?
 
   // features
-  temp_gradient_c                    Float?
-  temp_gradient_ok                   Boolean
-  heat_source_on                     Boolean?
-  heat_source_on_since_ms            BigInt?
-  heat_source_on_duration_ms         BigInt?
-  heat_source_state_ok               Boolean
-  surface_temp_step_delta_c          Float?
-  surface_temp_step_delta_ok         Boolean
-  surface_temp_rise_since_heat_on_c  Float?
-  surface_temp_rise_since_heat_on_ok Boolean
+  temp_gradient_c                     Float?
+  temp_gradient_ok                    Boolean
+  heat_source_on                      Boolean?
+  heat_source_on_since_ms             BigInt?
+  heat_source_on_duration_ms          BigInt?
+  heat_source_state_ok                Boolean
+  surface_temp_step_delta_c           Float?
+  surface_temp_step_delta_ok          Boolean
+  surface_temp_rise_since_heat_on_c   Float?
+  surface_temp_rise_since_heat_on_ok  Boolean
 
   // diagnosis
+  // [fix #1] diag_status는 message_state enum 사용 (DTO의 StateSchema와 일치)
   diag_status  message_state
   l_match      Int
   l_grad       Int
@@ -226,16 +222,16 @@ model Alert {
   light_level        Int?
 
   // features
-  temp_gradient_c                    Float?
-  temp_gradient_ok                   Boolean
-  heat_source_on                     Boolean?
-  heat_source_on_since_ms            BigInt?
-  heat_source_on_duration_ms         BigInt?
-  heat_source_state_ok               Boolean
-  surface_temp_step_delta_c          Float?
-  surface_temp_step_delta_ok         Boolean
-  surface_temp_rise_since_heat_on_c  Float?
-  surface_temp_rise_since_heat_on_ok Boolean
+  temp_gradient_c                     Float?
+  temp_gradient_ok                    Boolean
+  heat_source_on                      Boolean?
+  heat_source_on_since_ms             BigInt?
+  heat_source_on_duration_ms          BigInt?
+  heat_source_state_ok                Boolean
+  surface_temp_step_delta_c           Float?
+  surface_temp_step_delta_ok          Boolean
+  surface_temp_rise_since_heat_on_c   Float?
+  surface_temp_rise_since_heat_on_ok  Boolean
 
   // diagnosis
   diag_status  message_state
@@ -300,8 +296,10 @@ model Fault {
   l_safety     Int?
   l_fault      Int?
   l_final      Int?
-  cause_flags  String?       @db.Text
-  fault_reason String        @db.Text
+  cause_flags  String?        @db.Text
+  // [fix #2] fault_reason: firmware에서 null 반환 가능하므로 String? (nullable)로 변경
+  // FaultDto의 fault.fault_reason: z.string().nullable()과 정책 통일
+  fault_reason String?        @db.Text
 
   // sensor_status
   usable_for_diagnosis          Boolean
