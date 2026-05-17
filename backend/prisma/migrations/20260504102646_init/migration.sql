@@ -209,7 +209,9 @@ CREATE TABLE `faults` (
     `l_fault` INTEGER NULL,
     `l_final` INTEGER NULL,
     `cause_flags` TEXT NULL,
-    `fault_reason` TEXT NOT NULL,
+    -- [fix #2] fault_reason: NOT NULL → NULL 허용으로 변경
+    -- firmware의 fault_reason은 null 반환 가능, FaultDto와 정책 통일
+    `fault_reason` TEXT NULL,
     `usable_for_diagnosis` BOOLEAN NOT NULL,
     `response_failure` BOOLEAN NOT NULL,
     `missing_value` BOOLEAN NOT NULL,
