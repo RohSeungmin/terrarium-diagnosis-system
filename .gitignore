@@ -1,0 +1,62 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE
+.vscode/
+.devcontainer/
+.clangd
+.ccls-cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# ESP-IDF build artifacts
+**/build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+
+# ESP-IDF component manager
+managed_components/
+**/.idf_component_manager/
+components/.idf/
+**/components/.idf/
+
+# Optional local tool dir
+.espressif/
+
+# ===== Backend (Node.js) =====
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Prisma 캐시 (필요시)
+backend/prisma/.prisma/
+
+# Prisma generated client
+backend/generated/
