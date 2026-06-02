@@ -43,16 +43,6 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    if (!fault.fault_reason) {
-      return res.status(400).json({
-        ok: false,
-        error: {
-          code: 'INVALID_PAYLOAD',
-          message: 'fault.fault_reason은 필수',
-        },
-      });
-    }
-
     await prisma.node.upsert({
       where: { node_id },
       update: { last_seen_at: new Date() },
@@ -88,7 +78,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
         l_fault: diagnosis?.l_fault ?? null,
         l_final: diagnosis?.l_final ?? null,
         cause_flags: diagnosis?.cause_flags ?? null,
-        fault_reason: fault.fault_reason,
+        fault_reason: fault.fault_reason ?? null,
 
         usable_for_diagnosis: sensor_status.usable_for_diagnosis,
         response_failure: sensor_status.response_failure,

@@ -83,7 +83,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-gray-500">
                 <Thermometer className="size-4 text-gray-400" />
-                <span className="text-xs font-medium">안전 표면 임계값: 35~42°C</span>
+                <span className="text-xs font-medium">Surface warning 45C / critical 50C</span>
               </div>
               <button
                 onClick={onGetStarted}

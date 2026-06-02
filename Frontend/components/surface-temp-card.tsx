@@ -55,7 +55,7 @@ export function SurfaceTempCard({
             {formatTemp(surfaceTemp, 1)}
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            Target: 38°C
+            Target: &gt;=42C
           </div>
         </div>
 

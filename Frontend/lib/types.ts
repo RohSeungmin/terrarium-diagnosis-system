@@ -7,7 +7,7 @@ export const MessageTypeSchema = z.enum(['summary', 'event', 'alert', 'fault', '
 export type MessageType = z.infer<typeof MessageTypeSchema>
 
 export const MQTT_POLICIES = {
-  summary: { qos: 0, retain: false, message_expiry_ms: 180000 },
+  summary: { qos: 0, retain: false, message_expiry_ms: 30000 },
   event: { qos: 1, retain: false, message_expiry_ms: 300000 },
   alert: { qos: 1, retain: false, message_expiry_ms: 1800000 },
   fault: { qos: 1, retain: false, message_expiry_ms: 600000 },
@@ -181,7 +181,7 @@ export const SummaryDto = z.object({
   state_changed: z.boolean().default(false),
   qos: z.number().int().min(0).max(2).default(0),
   retain: z.boolean().default(false),
-  message_expiry_ms: z.number().int().positive().default(180000),
+  message_expiry_ms: z.number().int().positive().default(30000),
   summary: z.object({
     ready: z.boolean(),
     window_sample_count: z.number().int().nonnegative(),
@@ -312,28 +312,17 @@ export function getTerrariumStatus(
     return { status: 'device_fault', label: 'Sensor Error' }
   }
 
-  const surfaceOk = surfaceTemp >= 35 && surfaceTemp <= 42
-  const hotAirOk = hotAirTemp >= 28 && hotAirTemp <= 36
-  const coolAirOk = coolAirTemp >= 22 && coolAirTemp <= 30
   const gradient = hotAirTemp - coolAirTemp
-  const gradientOk = gradient >= 4 && gradient <= 12
 
-  if (surfaceOk && hotAirOk && coolAirOk && gradientOk) {
-    return { status: 'normal', label: 'Comfortable' }
+  if (surfaceTemp >= 50 || gradient < 5) {
+    return { status: 'critical', label: 'Critical' }
   }
 
-  if (surfaceTemp > 45 || hotAirTemp > 40 || coolAirTemp > 35) {
-    return { status: 'critical', label: 'Too Hot' }
-  }
-  if (surfaceTemp < 30 || hotAirTemp < 24 || coolAirTemp < 18) {
-    return { status: 'critical', label: 'Too Cold' }
+  if (surfaceTemp >= 45 || gradient < 10) {
+    return { status: 'warning', label: 'Warning' }
   }
 
-  if (surfaceTemp > 42) return { status: 'warning', label: 'Basking Hot' }
-  if (surfaceTemp < 35) return { status: 'warning', label: 'Basking Cool' }
-  if (!gradientOk) return { status: 'warning', label: 'Check Gradient' }
-
-  return { status: 'warning', label: 'Adjust Needed' }
+  return { status: 'normal', label: 'Normal' }
 }
 
 export function formatTemp(temp: number | null, decimals = 1): string {
@@ -369,7 +358,7 @@ export function getStatusColor(state: State): string {
 }
 
 export const RECOMMENDED_RANGES = {
-  surface: { min: 35, max: 40, label: '35-40C' },
+  surface: { min: 42, max: 45, label: '42-45C' },
   hotAir: { min: 30, max: 35, label: '30-35C' },
   coolAir: { min: 24, max: 28, label: '24-28C' },
 }
