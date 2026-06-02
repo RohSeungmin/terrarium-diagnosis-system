@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 
 import heartbeatRouter from './routes/heartbeat';
+import nodesRouter from './routes/nodes';
 import summaryRouter from './routes/summary';
 import eventRouter from './routes/event';
 import alertRouter from './routes/alert';
@@ -25,6 +26,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 // API 라우터
+app.use('/api/nodes', nodesRouter);
 app.use('/api/heartbeat', heartbeatRouter);
 app.use('/api/summary', summaryRouter);
 app.use('/api/event', eventRouter);

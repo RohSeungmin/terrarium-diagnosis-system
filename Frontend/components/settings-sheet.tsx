@@ -114,7 +114,7 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <p className="text-xs text-gray-500">Surface</p>
-                  <p className="text-lg font-semibold text-gray-900">38°C</p>
+                  <p className="text-lg font-semibold text-gray-900">&gt;=42C</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Hot Zone</p>
