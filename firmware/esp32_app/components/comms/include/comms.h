@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define COMMS_DEFAULT_BROKER_URI "mqtt://192.168.0.10:1883" // TODO: 실제 서버 주소로 교체
+#define COMMS_DEFAULT_BROKER_URI "mqtt://172.20.10.2:1883"  // TODO: 실제 서버 주소로 교체
 #define COMMS_DEFAULT_NODE_ID "esp32_01"                    // TODO: 노드 식별자 설정값으로 교체
 #define COMMS_DEFAULT_TOPIC_PREFIX "terrarium/terrarium_01"
 #define COMMS_DEFAULT_HEARTBEAT_TOPIC_SUFFIX "heartbeat"
@@ -32,7 +32,7 @@ typedef struct {
     const char *topic_suffix;
     int qos;
     bool retain;
-    uint32_t expiry_ms; // MQTT v5 Message Expiry Interval 적용값. payload metadata에도 포함함.
+    uint32_t expiry_ms; // MQTT v5 Message Expiry Interval and payload metadata value.
 } comms_message_policy_t;
 
 typedef struct {

@@ -35,6 +35,7 @@ export function startMqttSubscriber() {
   client = mqtt.connect(MQTT_BROKER_URL, {
     clientId: `backend_${Math.random().toString(16).slice(2)}`,
     clean: true,
+    protocolVersion: 5,
     reconnectPeriod: 3000,
   });
 

@@ -30,8 +30,7 @@ static const char *TAG = "comms";
 #define COMMS_HEARTBEAT_RETAIN false
 #define COMMS_MILLISECONDS_PER_SECOND 1000U
 
-// 메시지 종류별 유효기간 기본값
-// MQTT v5 Message Expiry Interval에 적용하고, JSON metadata에도 함께 포함함
+// Default expiry values. Applied to MQTT v5 properties and JSON metadata.
 #define COMMS_SUMMARY_EXPIRY_MS 30000U // 30초
 #define COMMS_EVENT_EXPIRY_MS 300000U // 5분
 #define COMMS_ALERT_EXPIRY_MS 1800000U // 30분
@@ -156,8 +155,6 @@ static esp_err_t comms_build_topic(const comms_ctx_t *ctx,
     return comms_build_topic_from_suffix(ctx, policy->topic_suffix, topic, topic_size);
 }
 
-// comms_expiry_ms_to_seconds:
-// comms 정책의 ms 단위 expiry를 MQTT v5 property의 초 단위 값으로 변환하는 함수
 static uint32_t comms_expiry_ms_to_seconds(uint32_t expiry_ms)
 {
     if (expiry_ms == 0U) {
@@ -168,8 +165,6 @@ static uint32_t comms_expiry_ms_to_seconds(uint32_t expiry_ms)
            ((expiry_ms % COMMS_MILLISECONDS_PER_SECOND) == 0U ? 0U : 1U);
 }
 
-// comms_heartbeat_expiry_ms:
-// heartbeat 주기의 2배를 MQTT v5 expiry로 사용하되 uint32_t overflow를 방지하는 함수
 static uint32_t comms_heartbeat_expiry_ms(const comms_ctx_t *ctx)
 {
     if (ctx == NULL) {
@@ -183,12 +178,15 @@ static uint32_t comms_heartbeat_expiry_ms(const comms_ctx_t *ctx)
     return ctx->config.heartbeat_publish_interval_ms * 2U;
 }
 
-// comms_set_mqtt5_publish_property:
-// 다음 PUBLISH 1회에 적용할 MQTT v5 JSON payload property와 message expiry를 설정하는 함수
-static esp_err_t comms_set_mqtt5_publish_property(esp_mqtt_client_handle_t client,
-                                                  uint32_t expiry_ms)
+static esp_err_t comms_publish_json(esp_mqtt_client_handle_t client,
+                                    const char *topic,
+                                    const char *payload,
+                                    int qos,
+                                    int retain,
+                                    uint32_t expiry_ms,
+                                    int *out_msg_id)
 {
-    if (client == NULL) {
+    if (client == NULL || topic == NULL || payload == NULL || out_msg_id == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -198,7 +196,24 @@ static esp_err_t comms_set_mqtt5_publish_property(esp_mqtt_client_handle_t clien
         .content_type = "application/json",
     };
 
-    return esp_mqtt5_client_set_publish_property((esp_mqtt5_client_handle_t)client, &property);
+    esp_err_t err = esp_mqtt5_client_set_publish_property((esp_mqtt5_client_handle_t)client,
+                                                          &property);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    int msg_id = esp_mqtt_client_publish(client,
+                                         topic,
+                                         payload,
+                                         0,
+                                         qos,
+                                         retain);
+    if (msg_id < 0) {
+        return ESP_FAIL;
+    }
+
+    *out_msg_id = msg_id;
+    return ESP_OK;
 }
 
 // comms_mqtt_event_handler:
@@ -313,6 +328,12 @@ esp_err_t comms_init(comms_ctx_t *ctx, const comms_config_t *config)
         return err;
     }
 
+    ESP_LOGI(TAG,
+             "MQTT connecting: broker=%s, topic_prefix=%s, node_id=%s",
+             ctx->config.broker_uri,
+             ctx->config.topic_prefix,
+             ctx->config.node_id);
+
     const esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = ctx->config.broker_uri,
         .session.protocol_ver = MQTT_PROTOCOL_V_5,
@@ -396,24 +417,21 @@ esp_err_t comms_publish_heartbeat_if_needed(comms_ctx_t *ctx,
         return err;
     }
 
-    err = comms_set_mqtt5_publish_property(client, comms_heartbeat_expiry_ms(ctx));
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "failed to set MQTT5 heartbeat publish property: %s", esp_err_to_name(err));
-        free(payload);
-        return err;
-    }
-
-    int msg_id = esp_mqtt_client_publish(client,
-                                         topic,
-                                         payload,
-                                         0,
-                                         COMMS_HEARTBEAT_QOS,
-                                         COMMS_HEARTBEAT_RETAIN ? 1 : 0);
+    int msg_id = 0;
+    err = comms_publish_json(client,
+                             topic,
+                             payload,
+                             COMMS_HEARTBEAT_QOS,
+                             COMMS_HEARTBEAT_RETAIN ? 1 : 0,
+                             comms_heartbeat_expiry_ms(ctx),
+                             &msg_id);
     free(payload);
 
-    if (msg_id < 0) {
-        ESP_LOGW(TAG, "MQTT heartbeat publish failed: topic=%s", topic);
-        return ESP_FAIL;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "MQTT heartbeat publish failed: topic=%s err=%s",
+                 topic,
+                 esp_err_to_name(err));
+        return err;
     }
 
     ctx->last_heartbeat_publish_ms = now_ms;
@@ -514,24 +532,19 @@ esp_err_t comms_publish_if_needed(comms_ctx_t *ctx,
         return err;
     }
 
-    err = comms_set_mqtt5_publish_property(client, policy->expiry_ms);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "failed to set MQTT5 publish property: %s", esp_err_to_name(err));
-        free(payload);
-        return err;
-    }
-
-    int msg_id = esp_mqtt_client_publish(client,
-                                         topic,
-                                         payload,
-                                         0,
-                                         policy->qos,
-                                         policy->retain ? 1 : 0);
+    int msg_id = 0;
+    err = comms_publish_json(client,
+                             topic,
+                             payload,
+                             policy->qos,
+                             policy->retain ? 1 : 0,
+                             policy->expiry_ms,
+                             &msg_id);
     free(payload);
 
-    if (msg_id < 0) {
-        ESP_LOGW(TAG, "MQTT publish failed: topic=%s", topic);
-        return ESP_FAIL;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "MQTT publish failed: topic=%s err=%s", topic, esp_err_to_name(err));
+        return err;
     }
 
     ctx->last_publish_ms[kind] = now_ms;

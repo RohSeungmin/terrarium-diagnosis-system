@@ -2,11 +2,11 @@
   "name": "terrarium-diagnosis-backend",
   "version": "1.0.0",
   "description": "건조형 도마뱀 사육장 백엔드 서버",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },
