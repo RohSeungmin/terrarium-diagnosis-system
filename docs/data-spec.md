@@ -111,7 +111,7 @@ ESP32가 생성하는 시간 정보는 `timestamp_ms`로 표현한다.
 ## event 및 alert 메시지
 
 `event`와 `alert` 메시지는 상세 진단 메시지이다.  
-공통 필드 외에 `sensor_values`, `features`, `diagnosis`, `state_transition`, `sensor_status` 객체를 포함한다.
+공통 필드 외에 `sensor_values`, `features`, `diagnosis`, `sensor_status` 객체를 포함한다.
 
 `sensor_values` 객체는 현재 전처리된 센서값을 포함한다.  
 `hot_surface_temp_c`는 온열 구역 표면 온도, `hot_air_temp_c`는 온열 구역 공기 온도, `cool_air_temp_c`는 냉각 구역 공기 온도, `light_level`은 조도값이다. 각 센서값이 유효하지 않으면 해당 값은 `null`로 전송된다.
@@ -125,9 +125,6 @@ ESP32가 생성하는 시간 정보는 `timestamp_ms`로 표현한다.
 `diagnosis` 객체는 로컬 진단 결과를 포함한다.  
 `status`는 진단 상태이며 `normal`, `warning`, `critical`, `device_fault` 중 하나이다.  
 `l_match`, `l_grad`, `l_safety`, `l_fault`, `l_final`은 진단 레벨 값이다. `cause_flags`는 이상 원인 플래그이며, `fault_reason`은 장치 이상 원인이다.
-
-`state_transition` 객체는 상태 전이 정보를 포함한다.  
-현재는 `state_changed` 필드를 포함하며, 상태가 이전 상태에서 변경되었는지를 나타낸다.
 
 ## fault 메시지
 

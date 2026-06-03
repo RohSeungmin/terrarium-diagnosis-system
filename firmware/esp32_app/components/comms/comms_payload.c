@@ -436,9 +436,6 @@ static esp_err_t comms_build_diagnostic_payload(char *payload,
     comms_append_features(&writer, preprocess_result);
     comms_json_append(&writer, ",");
     comms_append_diagnosis(&writer, diagnosis_result);
-    comms_json_append(&writer, ",\"state_transition\":{\"state_changed\":");
-    comms_json_append_bool(&writer, state_logic_result->state_changed);
-    comms_json_append(&writer, "}");
     comms_json_append(&writer, ",");
     comms_append_sensor_status(&writer, preprocess_result);
     comms_json_append(&writer, "}");

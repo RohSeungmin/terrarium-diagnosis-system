@@ -55,6 +55,7 @@
       "node_id": "esp32_01",
       "name": "메인 사육장",
       "location": "1번 사육장",
+      "topic_prefix": "terrarium/terrarium_01",
       "created_at": "2026-04-12T20:00:00+09:00",
       "updated_at": "2026-04-12T20:00:00+09:00",
       "last_seen_at": "2026-04-12T20:30:00+09:00"
@@ -134,6 +135,14 @@ heartbeat 수신.
 heartbeat 이력.
 
 **Query**: `from`, `to`, `limit`
+
+### `GET /api/nodes/:node_id/readings/latest`
+summary/event/alert/fault 중 가장 최근 payload 1건.
+
+### `GET /api/nodes/:node_id/readings`
+summary/event/alert/fault를 `received_at` 기준으로 합친 최신 payload 목록.
+
+**Query**: `limit`
 
 ---
 
@@ -309,7 +318,7 @@ critical 알림 저장.
   "retain": false,
   "message_expiry_ms": 1800000,
   "sensor_values": {
-    "hot_surface_temp_c": 45.2,
+    "hot_surface_temp_c": 50.2,
     "hot_air_temp_c": 38.0,
     "cool_air_temp_c": 28.5,
     "light_level": 800

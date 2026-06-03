@@ -108,21 +108,21 @@ export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
               </div>
             </div>
 
-            {/* Target Temperatures */}
+            {/* Diagnosis thresholds */}
             <div className="rounded-lg bg-gray-50 p-4">
-              <h3 className="mb-3 text-sm font-semibold text-gray-900">Target Temperatures</h3>
+              <h3 className="mb-3 text-sm font-semibold text-gray-900">Diagnosis Thresholds</h3>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <p className="text-xs text-gray-500">Surface</p>
+                  <p className="text-xs text-gray-500">Surface Min</p>
                   <p className="text-lg font-semibold text-gray-900">&gt;=42C</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Hot Zone</p>
-                  <p className="text-lg font-semibold text-gray-900">32°C</p>
+                  <p className="text-xs text-gray-500">Gradient OK</p>
+                  <p className="text-lg font-semibold text-gray-900">&gt;=10C</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Cool Zone</p>
-                  <p className="text-lg font-semibold text-gray-900">24°C</p>
+                  <p className="text-xs text-gray-500">Gradient Critical</p>
+                  <p className="text-lg font-semibold text-gray-900">&lt;5C</p>
                 </div>
               </div>
             </div>

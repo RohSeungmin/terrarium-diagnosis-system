@@ -1,6 +1,7 @@
 'use client'
 
 import { Shield, Thermometer, Wind, Droplets, Sun } from "lucide-react"
+import { formatTemp } from "@/lib/types"
 import type { TerrariumReading, State } from "@/lib/types"
 
 // 💡 개별 센서 항목 아이템 컴포넌트
@@ -45,7 +46,7 @@ interface SidebarProps {
 
 export const Sidebar = ({ latestReading }: SidebarProps) => {
   const state: State = latestReading?.state ?? "normal"
-  const timestamp = latestReading?.timestamp ? new Date(latestReading.timestamp) : new Date()
+  const timestamp = latestReading?.timestamp ? new Date(latestReading.timestamp) : null
 
   // 시스템 전체 상태에 따른 컬러&라벨 정의
   const stateColor = 
@@ -64,13 +65,14 @@ export const Sidebar = ({ latestReading }: SidebarProps) => {
     state === "device_fault" ? "bg-purple-500" : "bg-red-500";
 
   // 센서 원본 데이터 매칭
-  const hotSurface = latestReading?.surface_temp_c ?? 0
-  const hotAir = latestReading?.hot_air_temp_c ?? 0
-  const coolAir = latestReading?.cool_air_temp_c ?? 0
-  const lightLevel = latestReading?.light_level ?? 0
+  const hotSurface = latestReading?.surface_temp_c ?? null
+  const hotAir = latestReading?.hot_air_temp_c ?? null
+  const coolAir = latestReading?.cool_air_temp_c ?? null
+  const lightLevel = latestReading?.light_level ?? null
 
   // 표면 온도에 따른 안전 레벨 판별 (UI 간소화용)
-  const surfaceStatus = hotSurface >= 43 ? (hotSurface >= 48 ? 2 : 1) : 0;
+  const surfaceStatus = hotSurface !== null && hotSurface >= 45 ? (hotSurface >= 50 ? 2 : 1) : 0;
+  const lightText = lightLevel !== null ? lightLevel.toString() : '-'
 
   return (
     <aside className="w-64 min-h-screen bg-white border-r border-gray-200 flex flex-col p-4 gap-4 overflow-y-auto shadow-sm select-none">
@@ -95,7 +97,9 @@ export const Sidebar = ({ latestReading }: SidebarProps) => {
         </div>
         <p className="text-[10px] font-medium text-gray-500">비어디드래곤 사육장 #1</p>
         <p className="text-[10px] font-mono text-gray-400 mt-1">
-          수신: {timestamp.getHours() >= 12 ? "오후" : "오전"} {timestamp.getHours().toString().padStart(2, "0")}:{timestamp.getMinutes().toString().padStart(2, "0")}:{timestamp.getSeconds().toString().padStart(2, "0")}
+          수신: {timestamp
+            ? `${timestamp.getHours() >= 12 ? "오후" : "오전"} ${timestamp.getHours().toString().padStart(2, "0")}:${timestamp.getMinutes().toString().padStart(2, "0")}:${timestamp.getSeconds().toString().padStart(2, "0")}`
+            : '-'}
         </p>
       </div>
 
@@ -115,10 +119,10 @@ export const Sidebar = ({ latestReading }: SidebarProps) => {
       <div className="flex-1">
         <p className="text-[11px] font-bold text-gray-400 mb-1.5">실시간 센서 정보</p>
         <div className="space-y-0.5">
-          <SensorItem icon={Thermometer} label="바스킹존 표면 온도" value={hotSurface.toFixed(1)} unit="°C" statusLevel={surfaceStatus} />
-          <SensorItem icon={Wind} label="사육장 핫존 공기온도" value={hotAir.toFixed(1)} unit="°C" statusLevel={0} />
-          <SensorItem icon={Droplets} label="사육장 쿨존 공기온도" value={coolAir.toFixed(1)} unit="°C" statusLevel={0} />
-          <SensorItem icon={Sun} label="상단 조도(밝기)" value={lightLevel.toString()} unit="lux" statusLevel={0} />
+          <SensorItem icon={Thermometer} label="바스킹존 표면 온도" value={formatTemp(hotSurface)} unit="" statusLevel={surfaceStatus} />
+          <SensorItem icon={Wind} label="사육장 핫존 공기온도" value={formatTemp(hotAir)} unit="" statusLevel={0} />
+          <SensorItem icon={Droplets} label="사육장 쿨존 공기온도" value={formatTemp(coolAir)} unit="" statusLevel={0} />
+          <SensorItem icon={Sun} label="상단 조도(밝기)" value={lightText} unit={lightLevel !== null ? 'lux' : ''} statusLevel={0} />
         </div>
       </div>
 
@@ -127,9 +131,9 @@ export const Sidebar = ({ latestReading }: SidebarProps) => {
         <p className="text-[11px] font-bold text-gray-400 mb-1.5">사육 환경 권장 기준</p>
         <div className="grid grid-cols-2 gap-y-1 text-[11px] font-medium text-gray-500">
           <span>바스킹존 경고 온도</span>
-          <span className="font-mono text-amber-500 text-right font-semibold">43°C 이상</span>
+          <span className="font-mono text-amber-500 text-right font-semibold">45C 이상</span>
           <span className="text-gray-400">바스킹존 위험 온도</span>
-          <span className="font-mono text-red-500 text-right font-semibold">48°C 이상</span>
+          <span className="font-mono text-red-500 text-right font-semibold">50C 이상</span>
           <div className="col-span-2 border-t border-gray-200/60 my-1"></div>
           <p className="col-span-2 text-[10px] text-gray-400 font-normal leading-normal">
             ※ 연속으로 임계값을 초과할 경우 대시보드 알림 팝업 및 경보음이 즉시 발생합니다.

@@ -2,10 +2,9 @@
 
 import { useState } from 'react'
 import { useEffect } from 'react'
-import { RefreshCw, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { AlertNotification } from './alert-notification'
 import { AirTempsCard } from './air-temps-card'
-import { AdjustSheet } from './adjust-sheet'
 import { DiagnosticsPanel } from './diagnostics-panel'
 import { HeatSourceStatus } from './heat-source-status'
 import { HistorySheet } from './history-sheet'
@@ -14,15 +13,7 @@ import { SettingsSheet } from './settings-sheet'
 import { StatsPanel } from './stats-panel'
 import { SurfaceTempCard } from './surface-temp-card'
 import { ZoneChart } from './zone-chart'
-import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import {
-  getCurrentAdjustment,
-  getNode,
-  getLatestReading,
-  getReadings,
-  saveAdjustment,
-} from '@/lib/temperature-store'
 import {
   fetchHeartbeat,
   fetchLatestReading,
@@ -32,7 +23,6 @@ import {
   getGradient,
   isHeartbeatOnline,
 } from '@/lib/temperature-api'
-import { RECOMMENDED_RANGES } from '@/lib/types'
 import type { HeartbeatDtoType, Node, State, TerrariumReading } from '@/lib/types'
 
 const stateLabels: Record<State, string> = {
@@ -42,16 +32,61 @@ const stateLabels: Record<State, string> = {
   device_fault: 'Device Fault',
 }
 
+function createEmptyReading(nodeId: string): TerrariumReading {
+  const timestamp = new Date(0)
+
+  return {
+    id: `${nodeId}-empty`,
+    schema: 'terrarium-diagnosis.v1',
+    node_id: nodeId,
+    topic: `terrarium/terrarium_01/${nodeId}/summary`,
+    topic_prefix: 'terrarium/terrarium_01',
+    message_type: 'summary',
+    timestamp_ms: 0,
+    received_at: timestamp.toISOString(),
+    timestamp,
+    state: 'normal',
+    state_changed: false,
+    qos: 0,
+    retain: false,
+    message_expiry_ms: 30000,
+    diagnosis: {},
+    sensor_status: {
+      usable_for_diagnosis: false,
+      response_failure: false,
+      missing_value: true,
+      out_of_range_value: false,
+      persistent_out_of_range_value: false,
+      repeated_value: false,
+      hot_surface_ok: false,
+      hot_air_ok: false,
+      cool_air_ok: false,
+      light_ok: false,
+    },
+    source: 'sensor',
+    adjustment: 0,
+    surface_temp_c: null,
+    hot_air_temp_c: null,
+    cool_air_temp_c: null,
+    light_level: null,
+    heat_source_on: false,
+    l_match: null,
+    l_grad: null,
+    l_safety: null,
+    l_fault: null,
+    l_final: null,
+    fault_reason: null,
+  }
+}
+
 export function TemperatureDashboard() {
-  const [adjustSheetOpen, setAdjustSheetOpen] = useState(false)
   const [historySheetOpen, setHistorySheetOpen] = useState(false)
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false)
   const [activeChartZone, setActiveChartZone] = useState<'hot' | 'cool' | 'gradient' | null>(null)
   const [selectedPeriod, setSelectedPeriod] = useState<'24h' | '7d' | '30d'>('24h')
-  const [readings, setReadings] = useState<TerrariumReading[]>(getReadings())
-  const [latestReading, setLatestReading] = useState<TerrariumReading | null>(getLatestReading())
-  const [node, setNode] = useState<Node>(getNode())
-  const [currentAdjustment, setCurrentAdjustment] = useState(getCurrentAdjustment())
+  const [readings, setReadings] = useState<TerrariumReading[]>([])
+  const [latestReading, setLatestReading] = useState<TerrariumReading | null>(null)
+  const [node, setNode] = useState<Node | null>(null)
   const [heartbeat, setHeartbeat] = useState<(HeartbeatDtoType & { received_at?: string }) | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -80,6 +115,9 @@ export function TemperatureDashboard() {
       } catch (error) {
         if (cancelled) return
         setApiError(error instanceof Error ? error.message : 'API connection failed')
+        setLatestReading(null)
+        setReadings([])
+        setHeartbeat(null)
       } finally {
         if (!cancelled && showLoading) setIsLoading(false)
       }
@@ -94,37 +132,27 @@ export function TemperatureDashboard() {
     }
   }, [])
 
-  const handleSaveAdjustment = (adjustment: number) => {
-    const newReading = saveAdjustment(adjustment)
-    if (newReading) {
-      setLatestReading(newReading)
-      setReadings(getReadings())
-      setCurrentAdjustment(adjustment)
-    }
-  }
-
-  if (!latestReading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-gray-500">No temperature data available</p>
-      </div>
-    )
-  }
-
-  const state = latestReading.state
-  const timestamp = new Date(latestReading.timestamp)
+  const hasLiveReading = latestReading !== null
+  const displayReading = latestReading ?? createEmptyReading(getDefaultNodeId())
+  const state = displayReading.state
+  const timestamp = new Date(displayReading.timestamp)
   const heartbeatOnline = isHeartbeatOnline(heartbeat)
   const heartbeatReceivedAt = heartbeat?.received_at ? new Date(heartbeat.received_at) : null
-  const stateColor =
-    state === 'normal'
+  const heartbeatLabel = heartbeatReceivedAt
+    ? heartbeatReceivedAt.toLocaleTimeString('en-US', { hour12: false })
+    : '-'
+  const stateColor = !hasLiveReading
+    ? 'text-gray-500'
+    : state === 'normal'
       ? 'text-emerald-600'
       : state === 'warning'
         ? 'text-amber-500'
         : state === 'device_fault'
           ? 'text-purple-500'
           : 'text-red-500'
-  const dotColor =
-    state === 'normal'
+  const dotColor = !hasLiveReading
+    ? 'bg-gray-400'
+    : state === 'normal'
       ? 'bg-emerald-500'
       : state === 'warning'
         ? 'bg-amber-500'
@@ -142,7 +170,7 @@ export function TemperatureDashboard() {
             Terrarium
           </h1>
           <p className="mt-0.5 truncate text-[10px] text-gray-400 md:text-xs">
-            {node.name} / {node.location}
+            {node ? `${node.name} / ${node.location}` : displayReading.node_id}
           </p>
         </div>
 
@@ -160,7 +188,7 @@ export function TemperatureDashboard() {
             </div>
             <span className="mt-0.5 font-mono text-[9px] text-gray-400 md:text-[10px]">
               heartbeat{' '}
-              {(heartbeatReceivedAt ?? timestamp).toLocaleTimeString('en-US', { hour12: false })}
+              {heartbeatLabel}
             </span>
           </div>
 
@@ -172,7 +200,7 @@ export function TemperatureDashboard() {
               <span className={`relative inline-flex size-1.5 rounded-full ${dotColor}`} />
             </span>
             <span className={`text-[10px] font-extrabold md:text-xs ${stateColor}`}>
-              {stateLabels[state]}
+              {hasLiveReading ? stateLabels[state] : 'No Data'}
             </span>
           </div>
 
@@ -186,49 +214,44 @@ export function TemperatureDashboard() {
       </header>
 
       <div className="space-y-3 px-4">
-        {(apiError || isLoading) && (
+        {(!hasLiveReading || apiError || isLoading) && (
           <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-500 shadow-sm">
-            {isLoading ? 'Loading backend data...' : `Using local fallback data: ${apiError}`}
+            {isLoading
+              ? 'Loading backend data...'
+              : apiError
+                ? `Backend unavailable: ${apiError}`
+                : 'No readings have been received yet.'}
           </div>
         )}
 
         <SurfaceTempCard
-          surfaceTemp={latestReading.surface_temp_c}
-          hotAirTemp={latestReading.hot_air_temp_c}
-          coolAirTemp={latestReading.cool_air_temp_c}
-          updatedAt={latestReading.timestamp}
-          source={latestReading.source}
-          heatSourceOn={latestReading.heat_source_on}
-          statusLabel={`${stateLabels[state]} from ESP32 diagnosis`}
+          surfaceTemp={displayReading.surface_temp_c}
+          hotAirTemp={displayReading.hot_air_temp_c}
+          coolAirTemp={displayReading.cool_air_temp_c}
+          updatedAt={hasLiveReading ? displayReading.timestamp : null}
+          source={displayReading.source}
+          heatSourceOn={hasLiveReading && displayReading.heat_source_on}
+          statusLabel={hasLiveReading ? `${stateLabels[state]} from ESP32 diagnosis` : 'No live data'}
         />
 
         <AirTempsCard
-          hotAirTemp={latestReading.hot_air_temp_c}
-          coolAirTemp={latestReading.cool_air_temp_c}
-          heatSourceOn={latestReading.heat_source_on}
-          updatedAt={latestReading.timestamp}
+          hotAirTemp={displayReading.hot_air_temp_c}
+          coolAirTemp={displayReading.cool_air_temp_c}
+          heatSourceOn={hasLiveReading && displayReading.heat_source_on}
+          updatedAt={hasLiveReading ? displayReading.timestamp : null}
           onHotZoneClick={() => setActiveChartZone('hot')}
           onCoolZoneClick={() => setActiveChartZone('cool')}
         />
 
-        <HeatSourceStatus reading={latestReading} />
+        <HeatSourceStatus reading={hasLiveReading ? displayReading : null} />
         <DiagnosticsPanel
-          latestReading={latestReading}
+          latestReading={displayReading}
           readings={readings}
           onGradientClick={() => setActiveChartZone('gradient')}
         />
 
-        <Button
-          variant="outline"
-          onClick={() => setAdjustSheetOpen(true)}
-          className="h-12 w-full rounded-xl border-gray-200 bg-white text-base font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-        >
-          <RefreshCw className="mr-2 size-5 text-violet-500" />
-          Adjust Reading
-        </Button>
-
         <RecentMeasurements readings={readings} onViewAll={() => setHistorySheetOpen(true)} />
-        <StatsPanel readings={readings} latestReading={latestReading} />
+        <StatsPanel readings={readings} latestReading={hasLiveReading ? displayReading : null} />
       </div>
 
       <Dialog open={activeChartZone !== null} onOpenChange={(open) => !open && setActiveChartZone(null)}>
@@ -285,7 +308,6 @@ export function TemperatureDashboard() {
                     subtitle={`Last ${selectedPeriod} temperature trend`}
                     data={chartData}
                     type="hot"
-                    targetTemp={(RECOMMENDED_RANGES.hotAir.min + RECOMMENDED_RANGES.hotAir.max) / 2}
                   />
                 )}
 
@@ -295,7 +317,6 @@ export function TemperatureDashboard() {
                     subtitle={`Last ${selectedPeriod} temperature trend`}
                     data={chartData}
                     type="cool"
-                    targetTemp={(RECOMMENDED_RANGES.coolAir.min + RECOMMENDED_RANGES.coolAir.max) / 2}
                   />
                 )}
 
@@ -305,7 +326,7 @@ export function TemperatureDashboard() {
                     subtitle={`Last ${selectedPeriod} gradient trend`}
                     data={chartData}
                     type="gradient"
-                    targetTemp={10}
+                    referenceLabel="Normal >=10C"
                   />
                 )}
               </div>
@@ -314,17 +335,6 @@ export function TemperatureDashboard() {
         </DialogContent>
       </Dialog>
 
-      <AdjustSheet
-        open={adjustSheetOpen}
-        onOpenChange={setAdjustSheetOpen}
-        surfaceTemp={latestReading.surface_temp_c}
-        hotAirTemp={latestReading.hot_air_temp_c}
-        coolAirTemp={latestReading.cool_air_temp_c}
-        currentAdjustment={currentAdjustment}
-        onSave={handleSaveAdjustment}
-        state={latestReading.state}
-        statusLabel={stateLabels[latestReading.state]}
-      />
       <HistorySheet open={historySheetOpen} onOpenChange={setHistorySheetOpen} readings={readings} />
       <SettingsSheet open={settingsSheetOpen} onOpenChange={setSettingsSheetOpen} />
     </div>

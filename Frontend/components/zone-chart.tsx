@@ -9,10 +9,10 @@ interface ZoneChartProps {
   subtitle: string
   data: ZoneHistory[]
   type: 'hot' | 'cool' | 'gradient'
-  targetTemp: number
+  referenceLabel?: string
 }
 
-export function ZoneChart({ title, subtitle, data, type, targetTemp }: ZoneChartProps) {
+export function ZoneChart({ title, subtitle, data, type, referenceLabel }: ZoneChartProps) {
   const chartData = data.map(item => ({
     ...item,
     time: new Date(item.timestamp).toLocaleTimeString('en-US', {
@@ -26,9 +26,12 @@ export function ZoneChart({ title, subtitle, data, type, targetTemp }: ZoneChart
   const gradientId = `${type}Gradient`
   const Icon = type === 'hot' ? Flame : type === 'cool' ? Snowflake : ThermometerSun
 
-  const minTemp = Math.min(...data.map(d => d.temperature))
-  const maxTemp = Math.max(...data.map(d => d.temperature))
-  const avgTemp = (data.reduce((sum, d) => sum + d.temperature, 0) / data.length).toFixed(1)
+  const hasData = data.length > 0
+  const minTemp = hasData ? Math.min(...data.map(d => d.temperature)) : null
+  const maxTemp = hasData ? Math.max(...data.map(d => d.temperature)) : null
+  const avgTemp = hasData
+    ? (data.reduce((sum, d) => sum + d.temperature, 0) / data.length).toFixed(1)
+    : null
 
   return (
     <div className="rounded-2xl bg-white p-5 shadow-sm">
@@ -51,8 +54,12 @@ export function ZoneChart({ title, subtitle, data, type, targetTemp }: ZoneChart
           </div>
         </div>
         <div className="text-right">
-          <p className="text-sm font-semibold text-gray-900">{avgTemp}°C avg</p>
-          <p className="text-xs text-gray-500">{minTemp}° - {maxTemp}°</p>
+          <p className="text-sm font-semibold text-gray-900">
+            {avgTemp !== null ? `${avgTemp}C avg` : '- avg'}
+          </p>
+          <p className="text-xs text-gray-500">
+            {minTemp !== null && maxTemp !== null ? `${minTemp}C - ${maxTemp}C` : '-'}
+          </p>
         </div>
       </div>
 
@@ -82,7 +89,7 @@ export function ZoneChart({ title, subtitle, data, type, targetTemp }: ZoneChart
               axisLine={false}
               tickLine={false}
               tick={{ fontSize: 10, fill: '#9ca3af' }}
-              tickFormatter={(value) => `${value}°`}
+              tickFormatter={(value) => `${value}C`}
               width={35}
             />
             <Tooltip
@@ -93,7 +100,7 @@ export function ZoneChart({ title, subtitle, data, type, targetTemp }: ZoneChart
                 fontSize: '12px',
               }}
               labelFormatter={(label) => `Time: ${label}`}
-              formatter={(value: number) => [`${value}°C`, 'Temp']}
+              formatter={(value: number) => [`${value}C`, 'Temp']}
             />
             <Area
               type="monotone"
@@ -107,12 +114,16 @@ export function ZoneChart({ title, subtitle, data, type, targetTemp }: ZoneChart
         </ResponsiveContainer>
       </div>
 
-      {/* Target line indicator */}
+      {/* Reference indicator */}
       <div className="mt-3 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-1">
-          <div className="size-2 rounded-full bg-gray-400" />
-          <span className="text-gray-500">Target: {targetTemp}°C</span>
-        </div>
+        {referenceLabel ? (
+          <div className="flex items-center gap-1">
+            <div className="size-2 rounded-full bg-gray-400" />
+            <span className="text-gray-500">{referenceLabel}</span>
+          </div>
+        ) : (
+          <div />
+        )}
         <div className="flex items-center gap-1">
           <div className="size-2 rounded-full" style={{ backgroundColor: primaryColor }} />
           <span className="text-gray-500">Temperature</span>
