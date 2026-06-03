@@ -12,7 +12,7 @@ interface DiagnosticsPanelProps {
 }
 
 function formatValue(value: number | null, unit = ''): string {
-  if (value === null) return '--'
+  if (value === null) return '-'
   return `${value.toFixed(1)}${unit}`
 }
 
@@ -46,7 +46,7 @@ export function DiagnosticsPanel({ latestReading, readings, onGradientClick }: D
         </div>
         <p className="text-3xl font-bold text-gray-800">{formatValue(gradient, 'C')}</p>
         <p className="mt-1 text-xs text-gray-500">
-          L_grad: {diagnosis.l_grad ?? '--'} / target G &gt;= 10C
+          L_grad: {diagnosis.l_grad ?? '-'} / target G &gt;= 10C
         </p>
       </button>
 
@@ -69,7 +69,7 @@ export function DiagnosticsPanel({ latestReading, readings, onGradientClick }: D
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl bg-gray-50 px-2 py-2">
               <p className="text-[10px] text-gray-400">{label}</p>
-              <p className="font-mono text-lg font-bold text-gray-800">{value ?? '--'}</p>
+              <p className="font-mono text-lg font-bold text-gray-800">{value ?? '-'}</p>
             </div>
           ))}
         </div>

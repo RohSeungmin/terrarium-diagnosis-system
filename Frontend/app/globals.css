@@ -77,6 +77,16 @@
 @theme inline {
   --font-sans: 'Geist', 'Geist Fallback';
   --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --text-xs: calc(0.75rem + 0.1667rem);
+  --text-sm: calc(0.875rem + 0.1667rem);
+  --text-base: calc(1rem + 0.1667rem);
+  --text-lg: calc(1.125rem + 0.1667rem);
+  --text-xl: calc(1.25rem + 0.1667rem);
+  --text-2xl: calc(1.5rem + 0.1667rem);
+  --text-3xl: calc(1.875rem + 0.1667rem);
+  --text-4xl: calc(2.25rem + 0.1667rem);
+  --text-5xl: calc(3rem + 0.1667rem);
+  --text-6xl: calc(3.75rem + 0.1667rem);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -121,5 +131,20 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .text-\[9px\] {
+    font-size: 11.667px;
+  }
+  .text-\[10px\] {
+    font-size: 12.667px;
+  }
+  .text-\[11px\] {
+    font-size: 13.667px;
+  }
+  .text-\[0\.8rem\] {
+    font-size: calc(0.8rem + 0.1667rem);
   }
 }

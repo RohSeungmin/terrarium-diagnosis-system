@@ -15,7 +15,7 @@ export const AlertDto = z.object({
   timestamp_ms:      z.number().int().nonnegative(),
   message_type:      z.literal('alert').optional(),
   state:             StateSchema,
-  // [fix #3] state_transition 블록 제거 (event.dto.ts와 동일한 이유)
+  // Top-level state_changed is the single transition flag.
   state_changed:     z.boolean().default(false),
   qos:               z.number().int().min(0).max(2).default(1),
   retain:            z.boolean().default(false),

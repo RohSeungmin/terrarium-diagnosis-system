@@ -7,7 +7,7 @@ interface SurfaceTempCardProps {
   surfaceTemp: number | null
   hotAirTemp: number | null
   coolAirTemp: number | null
-  updatedAt: Date
+  updatedAt: Date | null
   source: 'sensor' | 'manual'
   heatSourceOn?: boolean
   statusLabel: string
@@ -44,7 +44,7 @@ export function SurfaceTempCard({
         </div>
         <div className="flex items-center gap-1 text-xs text-gray-500">
           <Clock className="size-3" />
-          {formatTime(new Date(updatedAt))}
+          {updatedAt ? formatTime(new Date(updatedAt)) : '-'}
         </div>
       </div>
 

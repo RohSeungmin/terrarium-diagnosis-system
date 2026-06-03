@@ -9,6 +9,7 @@ import summaryRouter from './routes/summary';
 import eventRouter from './routes/event';
 import alertRouter from './routes/alert';
 import faultRouter from './routes/fault';
+import dashboardRouter from './routes/dashboard';
 import { startMqttSubscriber } from './mqtt/subscriber';
 
 dotenv.config();
@@ -32,6 +33,7 @@ app.use('/api/summary', summaryRouter);
 app.use('/api/event', eventRouter);
 app.use('/api/alert', alertRouter);
 app.use('/api/fault', faultRouter);
+app.use('/api/dashboard', dashboardRouter);
 
 // 404 핸들러
 app.use((req: Request, res: Response) => {

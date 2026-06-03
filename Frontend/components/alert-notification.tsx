@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react"
+import { getGradient } from "@/lib/temperature-api"
+import { formatTemp } from "@/lib/types"
 import type { TerrariumReading, State } from "@/lib/types"
 
 interface AlertNotificationProps {
@@ -56,20 +58,21 @@ export const AlertNotification = ({ reading }: AlertNotificationProps) => {
     }
 
     // 데이터 구조에 맞춰서 계산 (핫존 - 쿨존 차이로 그래디언트 도출)
-    const hotAir = reading.hot_air_temp_c ?? 0
-    const coolAir = reading.cool_air_temp_c ?? 0
-    const gradient = (hotAir - coolAir).toFixed(1)
+    const gradient = getGradient(reading)
+    const gradientText = gradient !== null ? `${gradient.toFixed(1)}C` : '-'
+    const surfaceText = formatTemp(reading.surface_temp_c)
+    const hotAirText = formatTemp(reading.hot_air_temp_c)
 
     // 💡 sonner 토스트 팝업 알림 분기
     if (to === "critical" || to === "device_fault") {
       toast.error(`🚨 위험: 상태 전이 ${from} → ${to}`, {
-        description: `Surface: ${reading.surface_temp_c}°C | Hot: ${hotAir}°C | Gradient: ${gradient}°C`,
+        description: `Surface: ${surfaceText} | Hot: ${hotAirText} | Gradient: ${gradientText}`,
         duration: 8000,
         icon: <ShieldAlert className="h-5 w-5 text-red-500" />,
       })
     } else if (to === "warning") {
       toast.warning(`⚠️ 경고: 상태 전이 ${from} → ${to}`, {
-        description: `Surface: ${reading.surface_temp_c}°C | Hot: ${hotAir}°C | Gradient: ${gradient}°C`,
+        description: `Surface: ${surfaceText} | Hot: ${hotAirText} | Gradient: ${gradientText}`,
         duration: 5000,
         icon: <AlertTriangle className="h-5 w-5 text-amber-500" />,
       })

@@ -326,7 +326,7 @@ export function getTerrariumStatus(
 }
 
 export function formatTemp(temp: number | null, decimals = 1): string {
-  if (temp === null) return '--'
+  if (temp === null) return '-'
   return `${temp.toFixed(decimals)}C`
 }
 
@@ -358,9 +358,8 @@ export function getStatusColor(state: State): string {
 }
 
 export const RECOMMENDED_RANGES = {
-  surface: { min: 42, max: 45, label: '42-45C' },
-  hotAir: { min: 30, max: 35, label: '30-35C' },
-  coolAir: { min: 24, max: 28, label: '24-28C' },
+  surface: { min: 42, warning: 45, critical: 50, label: '>=42C' },
+  gradient: { normalMin: 10, criticalBelow: 5, label: '>=10C' },
 }
 
 export interface ZoneHistory {

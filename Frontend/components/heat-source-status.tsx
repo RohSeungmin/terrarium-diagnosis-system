@@ -4,11 +4,11 @@ import { Flame, Power, ShieldCheck, ShieldX, Timer } from 'lucide-react'
 import type { TerrariumReading } from '@/lib/types'
 
 interface HeatSourceStatusProps {
-  reading: TerrariumReading
+  reading: TerrariumReading | null
 }
 
 function formatDuration(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined) return '--'
+  if (ms === null || ms === undefined) return '-'
 
   const totalSeconds = Math.floor(ms / 1000)
   const minutes = Math.floor(totalSeconds / 60)
@@ -25,11 +25,11 @@ function formatDuration(ms: number | null | undefined): string {
 
 export function HeatSourceStatus({ reading }: HeatSourceStatusProps) {
   const stateOk =
-    reading.heat_source?.state_ok ?? reading.features?.heat_source_state_ok ?? true
+    reading?.heat_source?.state_ok ?? reading?.features?.heat_source_state_ok ?? false
   const heatSourceOn =
-    reading.heat_source?.on ?? reading.features?.heat_source_on ?? reading.heat_source_on
+    reading?.heat_source?.on ?? reading?.features?.heat_source_on ?? reading?.heat_source_on ?? false
   const onDurationMs =
-    reading.heat_source?.on_duration_ms ?? reading.features?.heat_source_on_duration_ms
+    reading?.heat_source?.on_duration_ms ?? reading?.features?.heat_source_on_duration_ms
 
   return (
     <div className="rounded-2xl bg-white p-5 shadow-sm">
@@ -48,7 +48,7 @@ export function HeatSourceStatus({ reading }: HeatSourceStatusProps) {
             heatSourceOn ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'
           }`}
         >
-          {heatSourceOn ? 'ON' : 'OFF'}
+          {reading ? (heatSourceOn ? 'ON' : 'OFF') : '-'}
         </span>
       </div>
 
@@ -59,7 +59,7 @@ export function HeatSourceStatus({ reading }: HeatSourceStatusProps) {
             Current state
           </div>
           <p className={`text-lg font-bold ${heatSourceOn ? 'text-orange-600' : 'text-gray-700'}`}>
-            {heatSourceOn ? 'Heating' : 'Standby'}
+            {reading ? (heatSourceOn ? 'Heating' : 'Standby') : '-'}
           </p>
         </div>
 
@@ -69,13 +69,18 @@ export function HeatSourceStatus({ reading }: HeatSourceStatusProps) {
             ON duration
           </div>
           <p className="font-mono text-lg font-bold text-gray-800">
-            {heatSourceOn ? formatDuration(onDurationMs) : '0m 0s'}
+            {reading ? (heatSourceOn ? formatDuration(onDurationMs) : '0m 0s') : '-'}
           </p>
         </div>
       </div>
 
       <div className="mt-3 flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-xs">
-        {stateOk ? (
+        {!reading ? (
+          <>
+            <ShieldX className="size-4 text-gray-400" />
+            <span className="font-medium text-gray-500">No heat source data</span>
+          </>
+        ) : stateOk ? (
           <>
             <ShieldCheck className="size-4 text-emerald-500" />
             <span className="font-medium text-emerald-600">Heat source state is valid</span>

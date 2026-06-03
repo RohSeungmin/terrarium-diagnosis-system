@@ -21,6 +21,7 @@ const TOPICS = [
 ];
 
 let client: MqttClient | null = null;
+const nodeMessageQueues = new Map<string, Promise<void>>();
 
 // ============================================================
 // MQTT 연결 및 구독
@@ -49,7 +50,7 @@ export function startMqttSubscriber() {
     }
   });
 
-  client.on('message', async (topic, payload) => {
+  client.on('message', (topic, payload) => {
     try {
       const text = payload.toString();
       const raw  = JSON.parse(text);
@@ -59,14 +60,10 @@ export function startMqttSubscriber() {
       // topic 마지막 세그먼트를 message_type으로 사용
       // firmware가 message_type 필드를 함께 보내면 그것도 쓸 수 있으나
       // topic 기반이 더 신뢰할 수 있는 분기 기준임
-      const messageType = topic.split('/').pop();
+      const messageType = topic.split('/').pop() ?? '';
+      const nodeId = getMessageNodeId(topic, raw);
 
-      if      (messageType === 'heartbeat') await saveHeartbeat(raw);
-      else if (messageType === 'summary')   await saveSummary(raw);
-      else if (messageType === 'event')     await saveEvent(raw);
-      else if (messageType === 'alert')     await saveAlert(raw);
-      else if (messageType === 'fault')     await saveFault(raw);
-      else console.warn(`[MQTT] unknown message_type: ${messageType}`);
+      enqueueNodeMessage(nodeId, () => handleMqttMessage(messageType, raw));
 
     } catch (err) {
       console.error('[MQTT] message handling error:', err);
@@ -84,16 +81,56 @@ export function startMqttSubscriber() {
 // 공통 유틸
 // ============================================================
 
+// Per-node queue helpers keep rapid heartbeat/fault/alert messages from
+// updating the same nodes row at the same time.
+function getMessageNodeId(topic: string, raw: unknown): string {
+  if (raw && typeof raw === 'object' && 'node_id' in raw) {
+    const nodeId = (raw as { node_id?: unknown }).node_id;
+    if (typeof nodeId === 'string' && nodeId.length > 0) return nodeId;
+  }
+
+  const segments = topic.split('/');
+  return segments.at(-2) ?? '__unknown_node__';
+}
+
+function enqueueNodeMessage(node_id: string, task: () => Promise<void>): void {
+  const previous = nodeMessageQueues.get(node_id) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(task);
+
+  nodeMessageQueues.set(node_id, current);
+
+  current
+    .catch((err) => console.error('[MQTT] message handling error:', err))
+    .finally(() => {
+      if (nodeMessageQueues.get(node_id) === current) {
+        nodeMessageQueues.delete(node_id);
+      }
+    });
+}
+
+async function handleMqttMessage(messageType: string, raw: unknown): Promise<void> {
+  if      (messageType === 'heartbeat') await saveHeartbeat(raw);
+  else if (messageType === 'summary')   await saveSummary(raw);
+  else if (messageType === 'event')     await saveEvent(raw);
+  else if (messageType === 'alert')     await saveAlert(raw);
+  else if (messageType === 'fault')     await saveFault(raw);
+  else console.warn(`[MQTT] unknown message_type: ${messageType}`);
+}
+
 /**
  * Node upsert: 메시지 수신 때마다 last_seen_at 갱신
  * node가 없으면 최소 정보로 생성
  */
 async function upsertNode(node_id: string): Promise<void> {
-  await prisma.node.upsert({
-    where:  { node_id },
-    update: { last_seen_at: new Date() },
-    create: { node_id, last_seen_at: new Date() },
-  });
+  const now = new Date();
+
+  await prisma.$executeRaw`
+    INSERT INTO nodes (node_id, created_at, updated_at, last_seen_at)
+    VALUES (${node_id}, ${now}, ${now}, ${now})
+    ON DUPLICATE KEY UPDATE
+      updated_at = VALUES(updated_at),
+      last_seen_at = VALUES(last_seen_at)
+  `;
 }
 
 /**
@@ -240,7 +277,7 @@ async function saveSummary(raw: unknown): Promise<void> {
     },
   });
 
-  // [fix #3] state_changed는 최상위 필드 하나만 사용 (state_transition 블록 제거)
+  // Top-level state_changed is the single transition flag.
   await recordTransitionIfNeeded(body.node_id, body.state, body.state_changed);
 
   console.log(`[summary] saved: node=${body.node_id} state=${body.state}`);
@@ -315,7 +352,7 @@ async function saveEvent(raw: unknown): Promise<void> {
     },
   });
 
-  // [fix #3] state_transition 블록 없이 최상위 state_changed만 사용
+  // Top-level state_changed is the single transition flag.
   await recordTransitionIfNeeded(
     body.node_id,
     body.state,

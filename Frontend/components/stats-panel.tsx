@@ -38,11 +38,15 @@ const mqttPolicy: Array<{
 
 interface StatsPanelProps {
   readings: TerrariumReading[]
-  latestReading: TerrariumReading
+  latestReading: TerrariumReading | null
 }
 
 function formatSeconds(ms: number): string {
   return `${Math.round(ms / 1000)}s`
+}
+
+function formatStat(value: string, unit: string): string {
+  return value === '-' ? '-' : `${value}${unit}`
 }
 
 export function StatsPanel({ readings, latestReading }: StatsPanelProps) {
@@ -59,7 +63,7 @@ export function StatsPanel({ readings, latestReading }: StatsPanelProps) {
       })
       .filter((value): value is number => value !== null)
 
-    if (values.length === 0) return { min: '--', avg: '--', max: '--' }
+    if (values.length === 0) return { min: '-', avg: '-', max: '-' }
 
     return {
       min: Math.min(...values).toFixed(1),
@@ -76,7 +80,9 @@ export function StatsPanel({ readings, latestReading }: StatsPanelProps) {
   }
 
   const activePolicy =
-    mqttPolicy.find((policy) => policy.messageType === latestReading.message_type) ?? mqttPolicy[0]
+    latestReading
+      ? mqttPolicy.find((policy) => policy.messageType === latestReading.message_type) ?? mqttPolicy[0]
+      : null
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
@@ -98,22 +104,19 @@ export function StatsPanel({ readings, latestReading }: StatsPanelProps) {
                 <div className="flex justify-between text-[11px]">
                   <span className="text-gray-400">Min</span>
                   <span className="font-mono font-medium text-blue-500">
-                    {item.data.min}
-                    {item.unit}
+                    {formatStat(item.data.min, item.unit)}
                   </span>
                 </div>
                 <div className="flex justify-between text-[11px]">
                   <span className="text-gray-400">Avg</span>
                   <span className="font-mono font-semibold text-gray-900">
-                    {item.data.avg}
-                    {item.unit}
+                    {formatStat(item.data.avg, item.unit)}
                   </span>
                 </div>
                 <div className="flex justify-between text-[11px]">
                   <span className="text-gray-400">Max</span>
                   <span className="font-mono font-medium text-red-500">
-                    {item.data.max}
-                    {item.unit}
+                    {formatStat(item.data.max, item.unit)}
                   </span>
                 </div>
               </div>
@@ -139,7 +142,7 @@ export function StatsPanel({ readings, latestReading }: StatsPanelProps) {
           <tbody>
             {mqttPolicy.map((policy) => {
               const transport = MQTT_POLICIES[policy.messageType]
-              const isActive = policy.messageType === latestReading.message_type
+              const isActive = policy.messageType === latestReading?.message_type
 
               return (
                 <tr
@@ -166,9 +169,11 @@ export function StatsPanel({ readings, latestReading }: StatsPanelProps) {
         </table>
         <p className="mt-3 border-t border-gray-50 pt-2 text-[10px] text-gray-400">
           Active payload:{' '}
-          <span className={`font-semibold ${activePolicy.color}`}>{latestReading.topic}</span>
+          <span className={`font-semibold ${activePolicy?.color ?? 'text-gray-500'}`}>
+            {latestReading?.topic ?? '-'}
+          </span>
         </p>
-        <p className="mt-1 text-[10px] text-gray-400">{activePolicy.purpose}</p>
+        <p className="mt-1 text-[10px] text-gray-400">{activePolicy?.purpose ?? 'No active payload'}</p>
       </div>
     </div>
   )
